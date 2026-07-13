@@ -17,7 +17,8 @@ void DfMenu::drawIcon(float scale) {
 
     const int radius = static_cast<int>(28 * scale);
     const int innerRadius = static_cast<int>(10 * scale);
-    const int lineWidth = max(2, static_cast<int>(3 * scale));
+    const int scaledLineWidth = static_cast<int>(3 * scale);
+    const int lineWidth = scaledLineWidth < 2 ? 2 : scaledLineWidth;
     const int arm = static_cast<int>(42 * scale);
     const uint16_t color = bruceConfig.priColor;
 
@@ -61,5 +62,7 @@ void DfMenu::drawIcon(float scale) {
         color
     );
 
-    tft.fillCircle(iconCenterX, iconCenterY, max(2, static_cast<int>(3 * scale)), color);
+    const int scaledCenter = static_cast<int>(3 * scale);
+    const int centerRadius = scaledCenter < 2 ? 2 : scaledCenter;
+    tft.fillCircle(iconCenterX, iconCenterY, centerRadius, color);
 }
