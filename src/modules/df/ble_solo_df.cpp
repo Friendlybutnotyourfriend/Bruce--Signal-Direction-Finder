@@ -70,6 +70,18 @@ TrackerState trackerState;
 MedianWindow medianWindow;
 std::string trackedAddress;
 
+int clampInt(int value, int low, int high) {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
+float clampFloat(float value, float low, float high) {
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
 void resetTrackerState() {
     portENTER_CRITICAL(&trackerMux);
     trackerState = TrackerState{};
@@ -102,6 +114,7 @@ public:
         if (advertisedDevice->getAddress().toString() != trackedAddress) return;
 
         const int rawRssi = advertisedDevice->getRSSI();
+        const uint32_t seenAtMs = millis();
         medianWindow.add(rawRssi);
         const float medianRssi = medianWindow.median();
 
@@ -114,7 +127,7 @@ public:
             trackerState.trend = 0.0f;
             trackerState.jitter = 0.0f;
             trackerState.samples = 1;
-            trackerState.lastSeenMs = millis();
+            trackerState.lastSeenMs = seenAtMs;
             trackerState.initialized = true;
             portEXIT_CRITICAL(&trackerMux);
             return;
@@ -130,9 +143,9 @@ public:
         trackerState.trend = trackerState.fastRssi - trackerState.stableRssi;
         trackerState.jitter +=
             JITTER_ALPHA * (fabsf(static_cast<float>(rawRssi) - trackerState.fastRssi) - trackerState.jitter);
-        trackerState.bestRssi = std::max(trackerState.bestRssi, trackerState.stableRssi);
+        if (trackerState.stableRssi > trackerState.bestRssi) trackerState.bestRssi = trackerState.stableRssi;
         trackerState.samples++;
-        trackerState.lastSeenMs = millis();
+        trackerState.lastSeenMs = seenAtMs;
         portEXIT_CRITICAL(&trackerMux);
     }
 };
@@ -140,7 +153,7 @@ public:
 BleDfScanCallbacks bleDfCallbacks;
 
 int signalBarPixels(float rssi, int width) {
-    const float bounded = std::max(-100.0f, std::min(-35.0f, rssi));
+    const float bounded = clampFloat(rssi, -100.0f, -35.0f);
     return static_cast<int>(((bounded + 100.0f) / 65.0f) * width);
 }
 
@@ -155,75 +168,92 @@ String trendLabel(const TrackerState &state) {
 uint16_t trendColor(const TrackerState &state) {
     if (!state.initialized || millis() - state.lastSeenMs > LOST_TARGET_MS) return TFT_RED;
     if (state.trend >= 3.0f) return TFT_GREEN;
-    if (state.trend <= -3.0f) return TFT_ORANGE;
+    if (state.trend <= -3.0f) return TFT_YELLOW;
     return bruceConfig.priColor;
 }
 
 int confidenceScore(const TrackerState &state) {
     if (!state.initialized) return 0;
 
-    int score = std::min(75, static_cast<int>(state.samples * 3));
-    score += std::max(0, 20 - static_cast<int>(state.jitter * 4.0f));
+    int sampleScore = static_cast<int>(state.samples * 3);
+    if (sampleScore > 75) sampleScore = 75;
 
+    int stabilityScore = 20 - static_cast<int>(state.jitter * 4.0f);
+    if (stabilityScore < 0) stabilityScore = 0;
+
+    int score = sampleScore + stabilityScore;
     const uint32_t age = millis() - state.lastSeenMs;
     if (age > 500) score -= static_cast<int>((age - 500) / 75);
 
-    return std::max(0, std::min(100, score));
+    return clampInt(score, 0, 100);
 }
 
 String compactTargetLabel(const BleDfTarget &target) {
     String label = target.name;
     if (label.isEmpty()) label = target.address;
 
-    const int maxChars = std::max(10, (tftWidth / (LW * FM)) - 8);
+    int maxChars = (tftWidth / (LW * FM)) - 8;
+    if (maxChars < 10) maxChars = 10;
     if (label.length() > static_cast<unsigned int>(maxChars)) label = label.substring(0, maxChars - 1) + "~";
     return label;
 }
 
-void drawTrackerScreen(const BleDfTarget &target, const TrackerState &state) {
+void drawTrackerFrame(const BleDfTarget &target) {
     tft.fillScreen(bruceConfig.bgColor);
     drawMainBorder(false);
 
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
     tft.drawCentreString("BLE SOLO DF", tftWidth / 2, 29, 1);
+    tft.drawCentreString(compactTargetLabel(target), tftWidth / 2, 43, 1);
 
-    const String targetLabel = compactTargetLabel(target);
-    tft.drawCentreString(targetLabel, tftWidth / 2, 44, 1);
-
-    const int raw = state.initialized ? state.rawRssi : -127;
-    const int stable = state.initialized ? static_cast<int>(roundf(state.stableRssi)) : -127;
-    const int best = state.initialized ? static_cast<int>(roundf(state.bestRssi)) : -127;
-
-    tft.setTextSize(FM);
-    tft.drawString("RAW " + String(raw), 13, 61, 1);
-    tft.drawCentreString("AVG " + String(stable), tftWidth / 2, 61, 1);
-    tft.drawRightString("BEST " + String(best), tftWidth - 13, 61, 1);
+    tft.drawString("RAW", 13, 58, 1);
+    tft.drawCentreString("AVG", tftWidth / 2, 58, 1);
+    tft.drawRightString("BEST", tftWidth - 13, 58, 1);
 
     const int barX = 14;
-    const int barY = 84;
+    const int barY = 88;
     const int barW = tftWidth - 28;
     const int barH = 18;
     tft.drawRect(barX, barY, barW, barH, bruceConfig.priColor);
 
+    const String footer = String(BTN_ALIAS) + " reset peak   Esc back";
+    tft.drawCentreString(footer, tftWidth / 2, tftHeight - 14, 1);
+    drawStatusBar();
+}
+
+void drawTrackerValues(const TrackerState &state) {
+    const int raw = state.initialized ? state.rawRssi : -127;
+    const int stable = state.initialized ? static_cast<int>(roundf(state.stableRssi)) : -127;
+    const int best = state.initialized ? static_cast<int>(roundf(state.bestRssi)) : -127;
+
+    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+    tft.setTextSize(FM);
+    tft.fillRect(8, 69, tftWidth - 16, 17, bruceConfig.bgColor);
+    tft.drawString(String(raw), 13, 69, 1);
+    tft.drawCentreString(String(stable), tftWidth / 2, 69, 1);
+    tft.drawRightString(String(best), tftWidth - 13, 69, 1);
+
+    const int barX = 16;
+    const int barY = 90;
+    const int barW = tftWidth - 32;
+    const int barH = 14;
+    tft.fillRect(barX, barY, barW, barH, bruceConfig.bgColor);
     if (state.initialized) {
-        const int fillW = std::max(0, std::min(barW - 4, signalBarPixels(state.stableRssi, barW - 4)));
-        if (fillW > 0) tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, trendColor(state));
+        const int fillW = clampInt(signalBarPixels(state.stableRssi, barW), 0, barW);
+        if (fillW > 0) tft.fillRect(barX, barY, fillW, barH, trendColor(state));
     }
 
+    tft.fillRect(8, 109, tftWidth - 16, 39, bruceConfig.bgColor);
     tft.setTextSize(FM);
     tft.setTextColor(trendColor(state), bruceConfig.bgColor);
-    tft.drawCentreString(trendLabel(state), tftWidth / 2, 108, 1);
+    tft.drawCentreString(trendLabel(state), tftWidth / 2, 110, 1);
 
     tft.setTextSize(FP);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     const String stats = "d " + String(state.trend, 1) + "  conf " + String(confidenceScore(state)) +
                          "%  n " + String(state.samples);
-    tft.drawCentreString(stats, tftWidth / 2, 130, 1);
-
-    const String footer = String(BTN_ALIAS) + " reset peak   Esc back";
-    tft.drawCentreString(footer, tftWidth / 2, tftHeight - 14, 1);
-    drawStatusBar();
+    tft.drawCentreString(stats, tftWidth / 2, 132, 1);
 }
 
 void trackBleTarget(const BleDfTarget &target) {
@@ -254,13 +284,14 @@ void trackBleTarget(const BleDfTarget &target) {
         return;
     }
 
+    drawTrackerFrame(target);
     uint32_t lastDrawMs = 0;
     while (!check(EscPress)) {
         if (check(SelPress)) resetPeak();
 
         const uint32_t now = millis();
         if (now - lastDrawMs >= 120) {
-            drawTrackerScreen(target, getTrackerSnapshot());
+            drawTrackerValues(getTrackerSnapshot());
             lastDrawMs = now;
         }
         delay(10);
@@ -321,11 +352,15 @@ void bleSoloDf() {
     }
 
     options.clear();
-    const size_t maxTargets = std::min<size_t>(targets.size(), 60);
+    const size_t maxTargets = targets.size() < 60 ? targets.size() : 60;
     for (size_t i = 0; i < maxTargets; i++) {
         const BleDfTarget target = targets[i];
         String label = target.name;
-        if (label.isEmpty()) label = target.address;
+        if (label.isEmpty()) {
+            label = target.address;
+        } else if (target.address.length() >= 5) {
+            label += " [" + target.address.substring(target.address.length() - 5) + "]";
+        }
         label += "  " + String(target.rssi);
 
         options.emplace_back(label, [target]() { trackBleTarget(target); });
