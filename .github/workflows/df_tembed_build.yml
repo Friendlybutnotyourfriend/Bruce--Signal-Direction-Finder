@@ -1,0 +1,51 @@
+name: DF T-Embed Build
+
+on:
+  push:
+    branches:
+      - agent/ble-solo-df-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: df-tembed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build lilygo-t-embed-cc1101
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout DF branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+          python -m pip install --upgrade pip
+          pip install platformio requests esptool intelhex
+
+      - name: Build T-Embed CC1101 Plus
+        run: platformio run -e lilygo-t-embed-cc1101
+
+      - name: Upload firmware and build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-DF-T-Embed
+          path: |
+            Bruce-*.bin
+            .pio/build/lilygo-t-embed-cc1101/firmware.bin
+            .pio/build/lilygo-t-embed-cc1101/bootloader.bin
+            .pio/build/lilygo-t-embed-cc1101/partitions.bin
+          if-no-files-found: error
+          retention-days: 7
