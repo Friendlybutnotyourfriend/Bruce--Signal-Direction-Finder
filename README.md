@@ -2,6 +2,9 @@
 
 # :shark: Bruce
 
+Bruce - DF *currently in development*
+A fork of Bruce containing the addition of a new menu function - DF. DF will allow the user to utilise their Bruce device, fitted with external antenna, as a Signal Direction Finder for other WiFi and Bluetooth devices, in particular Airtags and others using passive advertising. Currently optimised for Lilygo T-Embed CC1101/Plus, more coming soon.
+
 Bruce is a versatile ESP32 firmware that supports a ton of offensive features focusing on facilitating Red Team operations.
 It also supports M5stack and Lilygo products and works great with Cardputer, Sticks, M5Cores, T-Decks and T-Embeds.
 
