@@ -1,4 +1,4 @@
-name: DF T-Embed Build
+name: DF Device Builds
 
 on:
   push:
@@ -10,14 +10,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: df-tembed-${{ github.ref }}
+  group: df-device-builds-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build lilygo-t-embed-cc1101
+    name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: LilyGO T-Embed CC1101 Plus
+            env: lilygo-t-embed-cc1101
+            artifact: Bruce-DF-T-Embed
+          - name: NM-CYD-C5
+            env: nm-cyd-c5
+            artifact: Bruce-DF-NM-CYD-C5
 
     steps:
       - name: Checkout DF branch
@@ -35,17 +45,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio requests esptool intelhex
 
-      - name: Build T-Embed CC1101 Plus
-        run: platformio run -e lilygo-t-embed-cc1101
+      - name: Build firmware
+        run: platformio run -e "${{ matrix.env }}"
 
       - name: Upload firmware and build outputs
         uses: actions/upload-artifact@v4
         with:
-          name: Bruce-DF-T-Embed
+          name: ${{ matrix.artifact }}
           path: |
             Bruce-*.bin
-            .pio/build/lilygo-t-embed-cc1101/firmware.bin
-            .pio/build/lilygo-t-embed-cc1101/bootloader.bin
-            .pio/build/lilygo-t-embed-cc1101/partitions.bin
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/partitions.bin
           if-no-files-found: error
           retention-days: 7
