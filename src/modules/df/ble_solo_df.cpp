@@ -21,6 +21,8 @@ constexpr uint32_t HANDOFF_ARM_MS = 900;
 constexpr uint32_t HANDOFF_MAX_GAP_MS = 10000;
 constexpr uint32_t HANDOFF_NOTICE_MS = 3000;
 constexpr uint32_t CANDIDATE_STALE_MS = 2200;
+constexpr uint32_t CANDIDATE_EVIDENCE_WINDOW_MS = 10000;
+constexpr uint8_t CANDIDATE_HIT_CAP = 99;
 constexpr int HANDOFF_SCORE_THRESHOLD = 78;
 constexpr uint8_t HANDOFF_HITS_REQUIRED = 3;
 constexpr size_t MEDIAN_WINDOW_SIZE = 7;
@@ -82,6 +84,12 @@ struct TrackerState {
     uint8_t lastHandoffScore = 0;
     uint8_t candidateScore = 0;
     uint8_t candidateHits = 0;
+    int candidateRawRssi = -127;
+    float candidateStableRssi = -127.0f;
+    float candidateBestRssi = -127.0f;
+    float candidateGapEmaMs = 0.0f;
+    uint32_t candidateFirstSeenMs = 0;
+    uint32_t candidateLastSeenMs = 0;
     char currentAddress[18]{};
     char previousAddress[18]{};
     char candidateAddress[18]{};
@@ -92,9 +100,13 @@ struct CandidateState {
     BleFingerprint fingerprint;
     char address[18]{};
     int rssi = -127;
+    float stableRssi = -127.0f;
+    float bestRssi = -127.0f;
+    float gapEmaMs = 0.0f;
     uint8_t score = 0;
     uint8_t hits = 0;
     uint32_t firstSeenMs = 0;
+    uint32_t previousSeenMs = 0;
     uint32_t lastSeenMs = 0;
 };
 
@@ -321,7 +333,22 @@ void resetCandidateLocked() {
     candidateState = CandidateState{};
     trackerState.candidateScore = 0;
     trackerState.candidateHits = 0;
+    trackerState.candidateRawRssi = -127;
+    trackerState.candidateStableRssi = -127.0f;
+    trackerState.candidateBestRssi = -127.0f;
+    trackerState.candidateGapEmaMs = 0.0f;
+    trackerState.candidateFirstSeenMs = 0;
+    trackerState.candidateLastSeenMs = 0;
     trackerState.candidateAddress[0] = '\0';
+}
+
+bool candidateIsActive(const TrackerState &state, uint32_t now) {
+    return state.candidateHits > 0 && state.candidateLastSeenMs != 0 &&
+           now - state.candidateLastSeenMs <= CANDIDATE_STALE_MS;
+}
+
+bool shouldShowCandidate(const TrackerState &state, uint32_t now) {
+    return state.initialized && now - state.lastSeenMs > LOST_TARGET_MS && candidateIsActive(state, now);
 }
 
 void resetTrackerState(const BleDfTarget &target) {
@@ -406,8 +433,10 @@ void acceptHandoffLocked(const CandidateState &candidate, uint32_t seenAtMs) {
     trackerState.handoffNoticeUntilMs = seenAtMs + HANDOFF_NOTICE_MS;
     trackerState.macFirstSeenMs = seenAtMs;
     trackerState.rawRssi = candidate.rssi;
-    trackerState.fastRssi = static_cast<float>(candidate.rssi);
-    trackerState.stableRssi = static_cast<float>(candidate.rssi);
+    trackerState.fastRssi = candidate.stableRssi;
+    trackerState.stableRssi = candidate.stableRssi;
+    trackerState.bestRssi = candidate.bestRssi;
+    trackerState.gapEmaMs = candidate.gapEmaMs;
     trackerState.trend = 0.0f;
     trackerState.lastSeenMs = seenAtMs;
     trackerState.lastPacketMs = seenAtMs;
@@ -499,22 +528,50 @@ public:
 
         portENTER_CRITICAL(&trackerMux);
         const bool sameCandidate = std::strncmp(candidateState.address, address.c_str(), 17) == 0;
-        const bool staleCandidate = candidateState.lastSeenMs != 0 && seenAtMs - candidateState.lastSeenMs > CANDIDATE_STALE_MS;
+        const bool staleCandidate =
+            candidateState.lastSeenMs != 0 && seenAtMs - candidateState.lastSeenMs > CANDIDATE_STALE_MS;
+        const bool expiredEvidenceWindow =
+            candidateState.firstSeenMs != 0 &&
+            seenAtMs - candidateState.firstSeenMs > CANDIDATE_EVIDENCE_WINDOW_MS;
 
-        if (!sameCandidate || staleCandidate) {
+        if (!sameCandidate || staleCandidate || expiredEvidenceWindow) {
             candidateState = CandidateState{};
             copyAddress(candidateState.address, address);
+            candidateState.rssi = rawRssi;
+            candidateState.stableRssi = static_cast<float>(rawRssi);
+            candidateState.bestRssi = static_cast<float>(rawRssi);
             candidateState.firstSeenMs = seenAtMs;
+            candidateState.previousSeenMs = seenAtMs;
+        } else {
+            const uint32_t candidateGapMs = seenAtMs - candidateState.previousSeenMs;
+            if (candidateGapMs < 60000) {
+                if (candidateState.gapEmaMs <= 0.1f)
+                    candidateState.gapEmaMs = static_cast<float>(candidateGapMs);
+                else
+                    candidateState.gapEmaMs +=
+                        0.25f * (static_cast<float>(candidateGapMs) - candidateState.gapEmaMs);
+            }
+
+            candidateState.rssi = rawRssi;
+            candidateState.stableRssi += 0.25f * (static_cast<float>(rawRssi) - candidateState.stableRssi);
+            if (candidateState.stableRssi > candidateState.bestRssi)
+                candidateState.bestRssi = candidateState.stableRssi;
+            candidateState.previousSeenMs = seenAtMs;
         }
 
         candidateState.fingerprint = candidateFingerprint;
-        candidateState.rssi = rawRssi;
         candidateState.score = static_cast<uint8_t>(score);
         candidateState.lastSeenMs = seenAtMs;
-        if (candidateState.hits < 255) candidateState.hits++;
+        if (candidateState.hits < CANDIDATE_HIT_CAP) candidateState.hits++;
 
         trackerState.candidateScore = candidateState.score;
         trackerState.candidateHits = candidateState.hits;
+        trackerState.candidateRawRssi = candidateState.rssi;
+        trackerState.candidateStableRssi = candidateState.stableRssi;
+        trackerState.candidateBestRssi = candidateState.bestRssi;
+        trackerState.candidateGapEmaMs = candidateState.gapEmaMs;
+        trackerState.candidateFirstSeenMs = candidateState.firstSeenMs;
+        trackerState.candidateLastSeenMs = candidateState.lastSeenMs;
         std::strncpy(trackerState.candidateAddress, candidateState.address, 17);
         trackerState.candidateAddress[17] = '\0';
 
@@ -553,7 +610,8 @@ String trackerStatusLabel(const TrackerState &state) {
     if (state.handoffNoticeUntilMs > now) return "HANDOFF " + String(state.lastHandoffScore) + "%";
     if (!state.initialized) return "SEARCHING";
     if (now - state.lastSeenMs > LOST_TARGET_MS) {
-        if (state.candidateHits > 0) return "CAND " + String(state.candidateScore) + "% x" + String(state.candidateHits);
+        if (candidateIsActive(state, now))
+            return "POSS " + String(state.candidateScore) + "% x" + String(state.candidateHits);
         return "TARGET LOST";
     }
     if (state.trend >= 3.0f) return "WARMER";
@@ -565,7 +623,7 @@ uint16_t trackerStatusColor(const TrackerState &state) {
     const uint32_t now = millis();
     if (state.handoffNoticeUntilMs > now) return TFT_GREEN;
     if (!state.initialized) return TFT_RED;
-    if (now - state.lastSeenMs > LOST_TARGET_MS) return state.candidateHits > 0 ? TFT_YELLOW : TFT_RED;
+    if (now - state.lastSeenMs > LOST_TARGET_MS) return candidateIsActive(state, now) ? TFT_YELLOW : TFT_RED;
     if (state.trend >= 3.0f) return TFT_GREEN;
     if (state.trend <= -3.0f) return TFT_YELLOW;
     return bruceConfig.priColor;
@@ -612,14 +670,19 @@ void drawTrackerFrame() {
 
 void drawTrackerValues(const TrackerSnapshot &snapshot) {
     const TrackerState &state = snapshot.state;
-    const int raw = state.initialized ? state.rawRssi : -127;
-    const int stable = state.initialized ? static_cast<int>(roundf(state.stableRssi)) : -127;
-    const int best = state.initialized ? static_cast<int>(roundf(state.bestRssi)) : -127;
+    const uint32_t now = millis();
+    const bool candidateMode = shouldShowCandidate(state, now);
+    const int raw = candidateMode ? state.candidateRawRssi : (state.initialized ? state.rawRssi : -127);
+    const int stable = candidateMode ? static_cast<int>(roundf(state.candidateStableRssi))
+                                     : (state.initialized ? static_cast<int>(roundf(state.stableRssi)) : -127);
+    const int best = candidateMode ? static_cast<int>(roundf(state.candidateBestRssi))
+                                   : (state.initialized ? static_cast<int>(roundf(state.bestRssi)) : -127);
+    const char *displayAddress = candidateMode ? state.candidateAddress : state.currentAddress;
 
     tft.fillRect(8, 42, tftWidth - 16, 14, bruceConfig.bgColor);
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+    tft.setTextColor(candidateMode ? TFT_YELLOW : bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
-    tft.drawCentreString(String(state.currentAddress), tftWidth / 2, 43, 1);
+    tft.drawCentreString(String(displayAddress), tftWidth / 2, 43, 1);
 
     tft.setTextSize(FM);
     tft.fillRect(8, 69, tftWidth - 16, 17, bruceConfig.bgColor);
@@ -633,7 +696,8 @@ void drawTrackerValues(const TrackerSnapshot &snapshot) {
     const int barH = 14;
     tft.fillRect(barX, barY, barW, barH, bruceConfig.bgColor);
     if (state.initialized) {
-        const int fillW = clampInt(signalBarPixels(state.stableRssi, barW), 0, barW);
+        const float displayedRssi = candidateMode ? state.candidateStableRssi : state.stableRssi;
+        const int fillW = clampInt(signalBarPixels(displayedRssi, barW), 0, barW);
         if (fillW > 0) tft.fillRect(barX, barY, fillW, barH, trackerStatusColor(state));
     }
 
@@ -647,12 +711,19 @@ void drawTrackerValues(const TrackerSnapshot &snapshot) {
 
     tft.setTextSize(FP);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    const String stats = "d" + String(state.trend, 1) + " c" + String(confidenceScore(state)) + " p" +
-                         String(displayedRate, 1) + " H" + String(state.handoffs);
+    String stats;
+    String age;
+    if (candidateMode) {
+        stats = "match " + String(state.candidateScore) + " seen " + String(state.candidateHits) + " gap " +
+                String(static_cast<int>(roundf(state.candidateGapEmaMs))) + "ms";
+        age = "from " + String(state.currentAddress) + " lost " + formatAge(now - state.lastSeenMs);
+    } else {
+        stats = "d" + String(state.trend, 1) + " c" + String(confidenceScore(state)) + " p" +
+                String(displayedRate, 1) + " H" + String(state.handoffs);
+        age = "MAC " + formatAge(now - state.macFirstSeenMs) + " gap " +
+              String(static_cast<int>(roundf(state.gapEmaMs))) + "ms";
+    }
     tft.drawCentreString(stats, tftWidth / 2, 132, 1);
-
-    const String age = "MAC " + formatAge(millis() - state.macFirstSeenMs) + " gap " +
-                       String(static_cast<int>(roundf(state.gapEmaMs))) + "ms";
     tft.drawCentreString(age, tftWidth / 2, 144, 1);
 }
 
