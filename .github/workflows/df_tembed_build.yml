@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/ble-solo-df-v1
+      - agent/ble-hunter-v2
   workflow_dispatch:
 
 permissions:
