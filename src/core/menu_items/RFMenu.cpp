@@ -2,6 +2,7 @@
 #include "core/display.h"
 #include "core/settings.h"
 #include "core/utils.h"
+#include "modules/rf/antenna_id.h"
 #include "modules/rf/record.h"
 #include "modules/rf/rf_bruteforce.h"
 #include "modules/rf/rf_jammer.h"
@@ -20,6 +21,7 @@ void RFMenu::optionsMenu() {
 #endif
         {"Spectrum",        rf_spectrum               },
 #if !defined(LITE_VERSION)
+        {"Antenna ID",      rf_antenna_id             },
         {"RSSI Spectrum",   rf_CC1101_rssi            }, // @Pirata
         {"SquareWave Spec", rf_SquareWave             }, // @Pirata
         {"Spectogram",      rf_waterfall              }, // dev_eclipse
