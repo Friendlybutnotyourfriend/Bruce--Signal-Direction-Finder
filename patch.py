@@ -1,6 +1,7 @@
 import hashlib
 from typing import TYPE_CHECKING, Any
 import requests
+import re
 
 if TYPE_CHECKING:
     Import: Any = None
@@ -57,6 +58,137 @@ if not isfile(join(FRAMEWORK_DIR,mcu, "lib", ".patched")):
             fp.write("")
 
     env.Execute(lambda *args, **kwargs: _touch(patchflag_path))
+
+
+def patch_ble_hunter_ui():
+    """Apply the target-first BLE Hunter UI without touching its DF/continuity engine."""
+    project_dir = env.get("PROJECT_DIR")
+    source_path = join(project_dir, "src", "modules", "df", "ble_solo_df.cpp")
+    menu_path = join(project_dir, "src", "core", "menu_items", "DfMenu.cpp")
+
+    if not exists(source_path):
+        return
+
+    with open(source_path, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    if "BLE_HUNTER_TARGET_FIRST_UI" not in source:
+        replacement = r'''// BLE_HUNTER_TARGET_FIRST_UI
+void drawTrackerFrame() {
+    tft.fillScreen(bruceConfig.bgColor);
+    drawMainBorder(false);
+
+    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+    tft.setTextSize(FP);
+    tft.drawCentreString("BLE HUNTER", tftWidth / 2, 29, 1);
+
+    const bool compact = tftHeight <= 150;
+    const int barY = compact ? 84 : 111;
+    const int barX = 14;
+    const int barW = tftWidth - 28;
+    const int barH = compact ? 12 : 15;
+    tft.drawRect(barX, barY, barW, barH, bruceConfig.priColor);
+
+    if (!compact) {
+        const String footer = String(BTN_ALIAS) + " peak   Hold details   Esc back";
+        tft.setTextSize(FP);
+        tft.drawCentreString(footer, tftWidth / 2, tftHeight - 14, 1);
+    }
+    drawStatusBar();
+}
+
+void drawTrackerValues(const TrackerSnapshot &snapshot) {
+    const TrackerState &state = snapshot.state;
+    const bool compact = tftHeight <= 150;
+    const int stable = state.initialized ? static_cast<int>(roundf(state.stableRssi)) : -127;
+    const int best = state.initialized ? static_cast<int>(roundf(state.bestRssi)) : -127;
+    const int confidence = confidenceScore(state);
+
+    String identity = state.currentName[0] ? String(state.currentName) : String("Unknown BLE");
+    const int maxNameChars = tftWidth >= 300 ? 28 : 20;
+    if (identity.length() > maxNameChars) identity = identity.substring(0, maxNameChars - 3) + "...";
+
+    String meta = "[" + String(identitySourceTag(state.identitySource)) + "] ";
+    meta += state.currentAddress[0] ? String(state.currentAddress) : String("--:--:--:--:--:--");
+
+    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+
+    // Target identity is the hero of the screen.
+    tft.fillRect(8, 39, tftWidth - 16, compact ? 42 : 55, bruceConfig.bgColor);
+    tft.setTextSize(compact ? FP : FM);
+    tft.drawCentreString(identity, tftWidth / 2, compact ? 40 : 41, 1);
+
+    tft.setTextSize(FP);
+    tft.drawCentreString(meta, tftWidth / 2, compact ? 52 : 59, 1);
+
+    // One useful, smoothed RSSI instead of three competing numbers.
+    tft.setTextSize(compact ? FM : FG);
+    const String rssiText = state.initialized ? String(stable) + " dBm" : String("-- dBm");
+    tft.drawCentreString(rssiText, tftWidth / 2, compact ? 64 : 72, 1);
+
+    if (!compact) {
+        tft.setTextSize(FP);
+        const String secondary = "PEAK " + String(best) + "   CONF " + String(confidence) + "%";
+        tft.drawCentreString(secondary, tftWidth / 2, 96, 1);
+    }
+
+    const int barX = 16;
+    const int barY = compact ? 86 : 113;
+    const int barW = tftWidth - 32;
+    const int barH = compact ? 8 : 11;
+    tft.fillRect(barX, barY, barW, barH, bruceConfig.bgColor);
+    if (state.initialized) {
+        const int fillW = clampInt(signalBarPixels(state.stableRssi, barW), 0, barW);
+        if (fillW > 0) tft.fillRect(barX, barY, fillW, barH, trackerStatusColor(state));
+    }
+
+    String direction = trackerStatusLabel(state);
+    if (direction == "WARMER")
+        direction = ">> WARMER";
+    else if (direction == "COLDER")
+        direction = "<< COLDER";
+    else if (direction == "STEADY")
+        direction = "-- STEADY --";
+
+    tft.fillRect(8, compact ? 98 : 126, tftWidth - 16, compact ? 29 : 27, bruceConfig.bgColor);
+    tft.setTextSize(FM);
+    tft.setTextColor(trackerStatusColor(state), bruceConfig.bgColor);
+    tft.drawCentreString(direction, tftWidth / 2, compact ? 99 : 127, 1);
+
+    if (!compact) {
+        float displayedRate = state.packetsPerSecond;
+        if (state.lastSeenMs == 0 || millis() - state.lastSeenMs > 1800) displayedRate = 0.0f;
+
+        tft.setTextSize(FP);
+        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+        const String stats = "RAW " + String(state.initialized ? state.rawRssi : -127) + "   " +
+                             String(displayedRate, 1) + "/s   H" + String(state.handoffs);
+        tft.drawCentreString(stats, tftWidth / 2, 146, 1);
+    }
+}
+
+void drawFingerprintDetails'''
+
+        pattern = re.compile(
+            r"void drawTrackerFrame\(\) \{.*?\nvoid drawFingerprintDetails",
+            re.DOTALL,
+        )
+        patched, count = pattern.subn(replacement, source, count=1)
+        if count != 1:
+            raise RuntimeError("BLE Hunter UI patch did not find the expected tracker display block")
+
+        with open(source_path, "w", encoding="utf-8") as f:
+            f.write(patched)
+        print("[BLE Hunter] Applied target-first tracker UI")
+
+    if exists(menu_path):
+        with open(menu_path, "r", encoding="utf-8") as f:
+            menu = f.read()
+        updated_menu = menu.replace('"BLE Solo DF"', '"BLE Hunter"')
+        if updated_menu != menu:
+            with open(menu_path, "w", encoding="utf-8") as f:
+                f.write(updated_menu)
+            print("[BLE Hunter] Renamed native DF menu entry")
 
 
 def hash_file(file_path):
@@ -201,4 +333,5 @@ def prepare_www_files():
     print(f"[DONE] Gzipped files embedded into {HEADER_FILE}")
 
 
+patch_ble_hunter_ui()
 prepare_www_files()
