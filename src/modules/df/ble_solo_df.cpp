@@ -26,6 +26,13 @@ constexpr uint8_t HANDOFF_HITS_REQUIRED = 3;
 constexpr size_t MEDIAN_WINDOW_SIZE = 7;
 constexpr size_t MAX_PAYLOAD_BYTES = 64;
 constexpr size_t MAX_MANUFACTURER_BYTES = 40;
+constexpr size_t MAX_IDENTITY_BYTES = 40;
+
+enum BleIdentitySource : uint8_t {
+    BLE_ID_ADDRESS = 0,
+    BLE_ID_ADVERTISED_NAME = 1,
+    BLE_ID_MANUFACTURER = 2,
+};
 
 uint32_t fnv1a(const uint8_t *data, size_t length, uint32_t seed = 2166136261UL) {
     uint32_t hash = seed;
@@ -59,6 +66,7 @@ struct BleDfTarget {
     String name;
     String address;
     int rssi = -127;
+    uint8_t identitySource = BLE_ID_ADDRESS;
     BleFingerprint fingerprint;
 };
 
@@ -82,6 +90,8 @@ struct TrackerState {
     uint8_t lastHandoffScore = 0;
     uint8_t candidateScore = 0;
     uint8_t candidateHits = 0;
+    uint8_t identitySource = BLE_ID_ADDRESS;
+    char currentName[MAX_IDENTITY_BYTES + 1]{};
     char currentAddress[18]{};
     char previousAddress[18]{};
     char candidateAddress[18]{};
@@ -90,8 +100,10 @@ struct TrackerState {
 
 struct CandidateState {
     BleFingerprint fingerprint;
+    char name[MAX_IDENTITY_BYTES + 1]{};
     char address[18]{};
     int rssi = -127;
+    uint8_t identitySource = BLE_ID_ADDRESS;
     uint8_t score = 0;
     uint8_t hits = 0;
     uint32_t firstSeenMs = 0;
@@ -155,6 +167,98 @@ float clampFloat(float value, float low, float high) {
 void copyAddress(char destination[18], const std::string &source) {
     std::memset(destination, 0, 18);
     std::strncpy(destination, source.c_str(), 17);
+}
+
+void copyIdentity(char destination[MAX_IDENTITY_BYTES + 1], const String &source) {
+    std::memset(destination, 0, MAX_IDENTITY_BYTES + 1);
+    std::strncpy(destination, source.c_str(), MAX_IDENTITY_BYTES);
+}
+
+String cleanIdentity(const uint8_t *data, size_t length) {
+    if (data == nullptr || length == 0) return String();
+
+    String cleaned;
+    const size_t count = length < MAX_IDENTITY_BYTES ? length : MAX_IDENTITY_BYTES;
+    cleaned.reserve(count);
+    for (size_t i = 0; i < count; i++) {
+        const uint8_t value = data[i];
+        if (value == 0) break;
+        if (value < 0x20 || value == 0x7F)
+            cleaned += ' ';
+        else
+            cleaned += static_cast<char>(value);
+    }
+    cleaned.trim();
+    return cleaned;
+}
+
+String cleanIdentity(const std::string &value) {
+    return cleanIdentity(reinterpret_cast<const uint8_t *>(value.data()), value.size());
+}
+
+String localNameFromPayload(const std::vector<uint8_t> &payload) {
+    String shortenedName;
+    size_t offset = 0;
+
+    while (offset < payload.size()) {
+        const uint8_t fieldLength = payload[offset];
+        if (fieldLength == 0) break;
+        const size_t fieldEnd = offset + static_cast<size_t>(fieldLength) + 1;
+        if (fieldLength < 1 || fieldEnd > payload.size()) break;
+
+        const uint8_t type = payload[offset + 1];
+        if ((type == 0x08 || type == 0x09) && fieldLength > 1) {
+            const String candidate = cleanIdentity(payload.data() + offset + 2, fieldLength - 1);
+            if (!candidate.isEmpty()) {
+                if (type == 0x09) return candidate;
+                if (shortenedName.isEmpty()) shortenedName = candidate;
+            }
+        }
+        offset = fieldEnd;
+    }
+    return shortenedName;
+}
+
+const char *companyName(uint16_t companyId) {
+    switch (companyId) {
+        case 0x0006: return "Microsoft";
+        case 0x004C: return "Apple";
+        case 0x0057: return "Harman";
+        case 0x0075: return "Samsung";
+        case 0x0087: return "Garmin";
+        case 0x009E: return "Bose";
+        case 0x00E0: return "Google";
+        case 0x012D: return "Sony";
+        default: return nullptr;
+    }
+}
+
+const char *identitySourceTag(uint8_t source) {
+    switch (source) {
+        case BLE_ID_ADVERTISED_NAME: return "ADV";
+        case BLE_ID_MANUFACTURER: return "MFG";
+        default: return "MAC";
+    }
+}
+
+String resolveDeviceIdentity(const NimBLEAdvertisedDevice *device, const BleFingerprint &fingerprint, uint8_t &source) {
+    source = BLE_ID_ADDRESS;
+    if (device == nullptr) return String();
+
+    String name = cleanIdentity(device->getName());
+    if (name.isEmpty()) name = localNameFromPayload(device->getPayload());
+    if (!name.isEmpty()) {
+        source = BLE_ID_ADVERTISED_NAME;
+        return name;
+    }
+
+    const char *company = companyName(fingerprint.companyId);
+    if (company != nullptr) {
+        source = BLE_ID_MANUFACTURER;
+        return String(company) + " device";
+    }
+
+    return String();
 }
 
 uint32_t calculateShapeHash(const uint8_t *payload, size_t length) {
@@ -330,6 +434,8 @@ void resetTrackerState(const BleDfTarget &target) {
     trackedFingerprint = target.fingerprint;
     copyAddress(trackerState.currentAddress, target.address.c_str());
     copyAddress(trackedAddress, target.address.c_str());
+    if (!target.name.isEmpty()) copyIdentity(trackerState.currentName, target.name);
+    trackerState.identitySource = target.identitySource;
     trackerState.macFirstSeenMs = millis();
     trackerState.rateWindowStartMs = millis();
     resetCandidateLocked();
@@ -400,6 +506,15 @@ void acceptHandoffLocked(const CandidateState &candidate, uint32_t seenAtMs) {
     std::strncpy(trackedAddress, candidate.address, 17);
     trackedAddress[17] = '\0';
 
+    // Preserve a strong advertised identity across privacy-address rotations. Only
+    // replace it when the successor actually advertises a name, or if we had none.
+    if (candidate.name[0] != '\0' &&
+        (candidate.identitySource == BLE_ID_ADVERTISED_NAME || trackerState.currentName[0] == '\0')) {
+        std::strncpy(trackerState.currentName, candidate.name, MAX_IDENTITY_BYTES);
+        trackerState.currentName[MAX_IDENTITY_BYTES] = '\0';
+        trackerState.identitySource = candidate.identitySource;
+    }
+
     trackedFingerprint = candidate.fingerprint;
     trackerState.handoffs++;
     trackerState.lastHandoffScore = candidate.score;
@@ -435,9 +550,15 @@ public:
             medianWindow.add(rawRssi);
             const float medianRssi = medianWindow.median();
             const BleFingerprint currentFingerprint = fingerprintFromDevice(advertisedDevice);
+            uint8_t seenIdentitySource = BLE_ID_ADDRESS;
+            const String seenIdentity = resolveDeviceIdentity(advertisedDevice, currentFingerprint, seenIdentitySource);
 
             portENTER_CRITICAL(&trackerMux);
             trackedFingerprint = currentFingerprint;
+            if (!seenIdentity.isEmpty() && seenIdentitySource == BLE_ID_ADVERTISED_NAME) {
+                copyIdentity(trackerState.currentName, seenIdentity);
+                trackerState.identitySource = BLE_ID_ADVERTISED_NAME;
+            }
             resetCandidateLocked();
             updateCadenceLocked(seenAtMs);
 
@@ -485,6 +606,8 @@ public:
         if (transitionMs < HANDOFF_ARM_MS || transitionMs > HANDOFF_MAX_GAP_MS) return;
 
         const BleFingerprint candidateFingerprint = fingerprintFromDevice(advertisedDevice);
+        uint8_t candidateIdentitySource = BLE_ID_ADDRESS;
+        const String candidateIdentity = resolveDeviceIdentity(advertisedDevice, candidateFingerprint, candidateIdentitySource);
         const int score = fingerprintScore(
             referenceFingerprint,
             candidateFingerprint,
@@ -509,6 +632,8 @@ public:
 
         candidateState.fingerprint = candidateFingerprint;
         candidateState.rssi = rawRssi;
+        candidateState.identitySource = candidateIdentitySource;
+        if (!candidateIdentity.isEmpty()) copyIdentity(candidateState.name, candidateIdentity);
         candidateState.score = static_cast<uint8_t>(score);
         candidateState.lastSeenMs = seenAtMs;
         if (candidateState.hits < 255) candidateState.hits++;
@@ -593,7 +718,7 @@ void drawTrackerFrame() {
 
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
-    tft.drawCentreString("BLE DF CONTINUITY", tftWidth / 2, 29, 1);
+    tft.drawCentreString("BLE HUNTER DF", tftWidth / 2, 29, 1);
 
     tft.drawString("RAW", 13, 58, 1);
     tft.drawCentreString("AVG", tftWidth / 2, 58, 1);
@@ -619,7 +744,9 @@ void drawTrackerValues(const TrackerSnapshot &snapshot) {
     tft.fillRect(8, 42, tftWidth - 16, 14, bruceConfig.bgColor);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
-    tft.drawCentreString(String(state.currentAddress), tftWidth / 2, 43, 1);
+    String identity = state.currentName[0] ? String(state.currentName) : String(state.currentAddress);
+    if (state.identitySource == BLE_ID_MANUFACTURER) identity += " [MFG]";
+    tft.drawCentreString(identity, tftWidth / 2, 43, 1);
 
     tft.setTextSize(FM);
     tft.fillRect(8, 69, tftWidth - 16, 17, bruceConfig.bgColor);
@@ -665,12 +792,15 @@ void drawFingerprintDetails(const TrackerSnapshot &snapshot) {
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
 
-    tft.drawCentreString("DF FINGERPRINT", tftWidth / 2, 29, 1);
-    tft.drawString("MAC  " + String(state.currentAddress), 10, 45, 1);
-    tft.drawString("Prev " + String(state.previousAddress[0] ? state.previousAddress : "-"), 10, 58, 1);
-    tft.drawString("Co   0x" + String(fingerprint.companyId, HEX), 10, 71, 1);
-    tft.drawString("Shape " + String(fingerprint.shapeHash, HEX), 10, 84, 1);
-    tft.drawString("Full  " + String(fingerprint.fullHash, HEX), 10, 97, 1);
+    tft.drawCentreString("BLE IDENTITY", tftWidth / 2, 29, 1);
+    const String identity = state.currentName[0] ? String(state.currentName) : String("Unknown BLE");
+    tft.drawString("Name " + identity + " [" + identitySourceTag(state.identitySource) + "]", 10, 45, 1);
+    tft.drawString("MAC  " + String(state.currentAddress), 10, 58, 1);
+    tft.drawString("Prev " + String(state.previousAddress[0] ? state.previousAddress : "-"), 10, 71, 1);
+    const char *company = companyName(fingerprint.companyId);
+    const String companyText = company ? String(company) : ("0x" + String(fingerprint.companyId, HEX));
+    tft.drawString("Mfg  " + companyText, 10, 84, 1);
+    tft.drawString("Shape " + String(fingerprint.shapeHash, HEX), 10, 97, 1);
     tft.drawString("Len " + String(fingerprint.payloadLen) + "  Mfg " + String(fingerprint.manufacturerLen) +
                        "  Type " + String(fingerprint.advType),
                    10,
@@ -684,7 +814,7 @@ void drawFingerprintDetails(const TrackerSnapshot &snapshot) {
 }
 
 void trackBleTarget(const BleDfTarget &target) {
-    displayTextLine("Starting BLE continuity tracker...");
+    displayTextLine("Starting BLE Hunter tracker...");
 
     ble_scan_setup();
     if (pBLEScan == nullptr) {
@@ -762,6 +892,8 @@ std::vector<BleDfTarget> discoverBleTargets() {
     pBLEScan->clearResults();
     pBLEScan->setMaxResults(80);
     pBLEScan->setActiveScan(true);
+    pBLEScan->setInterval(SCAN_INT);
+    pBLEScan->setWindow(SCAN_WINDOW);
 
     BLEScanResults foundDevices = pBLEScan->getResults(DISCOVERY_TIME_MS, false);
     targets.reserve(foundDevices.getCount());
@@ -771,10 +903,10 @@ std::vector<BleDfTarget> discoverBleTargets() {
         if (device == nullptr) continue;
 
         BleDfTarget target;
-        target.name = device->getName().c_str();
         target.address = device->getAddress().toString().c_str();
         target.rssi = device->getRSSI();
         target.fingerprint = fingerprintFromDevice(device);
+        target.name = resolveDeviceIdentity(device, target.fingerprint, target.identitySource);
         targets.push_back(target);
     }
 
@@ -804,11 +936,11 @@ void bleSoloDf() {
         String label = target.name;
         if (label.isEmpty()) {
             label = target.address;
-        } else if (target.address.length() >= 5) {
-            label += " [" + target.address.substring(target.address.length() - 5) + "]";
+        } else {
+            if (target.identitySource == BLE_ID_MANUFACTURER) label += " [MFG]";
+            if (target.address.length() >= 5) label += " [" + target.address.substring(target.address.length() - 5) + "]";
         }
         label += " " + String(target.rssi);
-        if (target.fingerprint.companyId != 0) label += " C" + String(target.fingerprint.companyId, HEX);
 
         options.emplace_back(label, [target]() { trackBleTarget(target); });
     }
