@@ -63,8 +63,7 @@ if not isfile(join(FRAMEWORK_DIR,mcu, "lib", ".patched")):
 def patch_ble_hunter_ui():
     """Apply the target-first BLE Hunter UI without touching its DF/continuity engine."""
     project_dir = env.get("PROJECT_DIR")
-    source_path = join(project_dir, "src", "modules", "df", "ble_solo_df.cpp")
-    menu_path = join(project_dir, "src", "core", "menu_items", "DfMenu.cpp")
+    source_path = join(project_dir, "src", "modules", "df", "ble_hunter.cpp")
 
     if not exists(source_path):
         return
@@ -191,16 +190,6 @@ void drawFingerprintDetails'''
         with open(source_path, "w", encoding="utf-8") as f:
             f.write(patched)
         print("[BLE Hunter] Applied target-first tracker UI")
-
-    if exists(menu_path):
-        with open(menu_path, "r", encoding="utf-8") as f:
-            menu = f.read()
-        updated_menu = menu.replace('"BLE Solo DF"', '"BLE Hunter"')
-        if updated_menu != menu:
-            with open(menu_path, "w", encoding="utf-8") as f:
-                f.write(updated_menu)
-            print("[BLE Hunter] Renamed native DF menu entry")
-
 
 def hash_file(file_path):
     """Generate SHA-256 hash for a single file."""

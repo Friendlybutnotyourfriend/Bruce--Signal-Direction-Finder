@@ -1,12 +1,12 @@
 #include "DfMenu.h"
 
 #include "core/utils.h"
-#include "modules/df/ble_solo_df.h"
+#include "modules/df/ble_hunter.h"
 #include <globals.h>
 
 void DfMenu::optionsMenu() {
     options.clear();
-    options.push_back({"BLE Solo DF", []() { bleSoloDf(); }});
+    options.push_back({"BLE Hunter", []() { bleHunter(); }});
 
     addOptionToMainMenu();
     loopOptions(options, MENU_TYPE_SUBMENU, "Direction Finding", 0, false);

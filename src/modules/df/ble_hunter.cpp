@@ -1,4 +1,4 @@
-#include "ble_solo_df.h"
+#include "ble_hunter.h"
 
 #include "core/display.h"
 #include "core/utils.h"
@@ -967,7 +967,7 @@ std::vector<BleDfTarget> discoverBleTargets() {
 
 } // namespace
 
-void bleSoloDf() {
+void bleHunter() {
     std::vector<BleDfTarget> targets = discoverBleTargets();
 
     if (targets.empty()) {
