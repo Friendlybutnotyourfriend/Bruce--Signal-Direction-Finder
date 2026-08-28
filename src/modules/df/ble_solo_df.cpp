@@ -20,6 +20,7 @@ constexpr uint32_t LOST_TARGET_MS = 3000;
 constexpr uint32_t HANDOFF_ARM_MS = 900;
 constexpr uint32_t HANDOFF_MAX_GAP_MS = 10000;
 constexpr uint32_t HANDOFF_NOTICE_MS = 3000;
+constexpr uint32_t REACQUIRE_NOTICE_MS = 2500;
 constexpr uint32_t CANDIDATE_STALE_MS = 2200;
 constexpr int HANDOFF_SCORE_THRESHOLD = 78;
 constexpr uint8_t HANDOFF_HITS_REQUIRED = 3;
@@ -86,7 +87,10 @@ struct TrackerState {
     uint32_t rateWindowPackets = 0;
     uint32_t macFirstSeenMs = 0;
     uint32_t handoffNoticeUntilMs = 0;
+    uint32_t reacquireNoticeUntilMs = 0;
+    uint32_t lastOfflineMs = 0;
     uint16_t handoffs = 0;
+    uint16_t reacquisitions = 0;
     uint8_t lastHandoffScore = 0;
     uint8_t candidateScore = 0;
     uint8_t candidateHits = 0;
@@ -523,12 +527,16 @@ void acceptHandoffLocked(const CandidateState &candidate, uint32_t seenAtMs) {
     trackerState.rawRssi = candidate.rssi;
     trackerState.fastRssi = static_cast<float>(candidate.rssi);
     trackerState.stableRssi = static_cast<float>(candidate.rssi);
+    trackerState.bestRssi = static_cast<float>(candidate.rssi);
     trackerState.trend = 0.0f;
+    trackerState.jitter = 0.0f;
+    trackerState.samples = 1;
     trackerState.lastSeenMs = seenAtMs;
     trackerState.lastPacketMs = seenAtMs;
     trackerState.rateWindowStartMs = seenAtMs;
     trackerState.rateWindowPackets = 1;
     trackerState.packetsPerSecond = 0.0f;
+    trackerState.gapEmaMs = 0.0f;
     resetCandidateLocked();
 }
 
@@ -547,6 +555,15 @@ public:
         portEXIT_CRITICAL(&trackerMux);
 
         if (isCurrentTarget) {
+            bool wasLost = false;
+            portENTER_CRITICAL(&trackerMux);
+            wasLost = trackerState.initialized && seenAtMs - trackerState.lastSeenMs > LOST_TARGET_MS;
+            portEXIT_CRITICAL(&trackerMux);
+
+            // Do not blend fresh measurements with samples from before an outage.
+            // A stale median/EMA makes a returning target look continuously tracked
+            // and can produce a false WARMER/COLDER cue.
+            if (wasLost) medianWindow.reset();
             medianWindow.add(rawRssi);
             const float medianRssi = medianWindow.median();
             const BleFingerprint currentFingerprint = fingerprintFromDevice(advertisedDevice);
@@ -560,6 +577,34 @@ public:
                 trackerState.identitySource = BLE_ID_ADVERTISED_NAME;
             }
             resetCandidateLocked();
+
+            if (wasLost) {
+                const uint32_t offlineMs = seenAtMs - trackerState.lastSeenMs;
+                trackerState.lastOfflineMs = offlineMs;
+                trackerState.reacquireNoticeUntilMs = seenAtMs + REACQUIRE_NOTICE_MS;
+                if (trackerState.reacquisitions < 0xFFFFu) trackerState.reacquisitions++;
+                trackerState.rawRssi = rawRssi;
+                trackerState.fastRssi = medianRssi;
+                trackerState.stableRssi = medianRssi;
+                trackerState.bestRssi = medianRssi;
+                trackerState.trend = 0.0f;
+                trackerState.jitter = 0.0f;
+                trackerState.samples = 1;
+                trackerState.lastSeenMs = seenAtMs;
+                trackerState.lastPacketMs = seenAtMs;
+                trackerState.rateWindowStartMs = seenAtMs;
+                trackerState.rateWindowPackets = 1;
+                trackerState.packetsPerSecond = 0.0f;
+                portEXIT_CRITICAL(&trackerMux);
+                Serial.printf(
+                    "[DF] REACQUIRED %s after %lums rssi=%d\n",
+                    address.c_str(),
+                    static_cast<unsigned long>(offlineMs),
+                    rawRssi
+                );
+                return;
+            }
+
             updateCadenceLocked(seenAtMs);
 
             if (!trackerState.initialized) {
@@ -676,6 +721,7 @@ int signalBarPixels(float rssi, int width) {
 String trackerStatusLabel(const TrackerState &state) {
     const uint32_t now = millis();
     if (state.handoffNoticeUntilMs > now) return "HANDOFF " + String(state.lastHandoffScore) + "%";
+    if (state.reacquireNoticeUntilMs > now) return "REACQUIRED " + String(state.lastOfflineMs / 1000) + "s";
     if (!state.initialized) return "SEARCHING";
     if (now - state.lastSeenMs > LOST_TARGET_MS) {
         if (state.candidateHits > 0) return "CAND " + String(state.candidateScore) + "% x" + String(state.candidateHits);
@@ -689,6 +735,7 @@ String trackerStatusLabel(const TrackerState &state) {
 uint16_t trackerStatusColor(const TrackerState &state) {
     const uint32_t now = millis();
     if (state.handoffNoticeUntilMs > now) return TFT_GREEN;
+    if (state.reacquireNoticeUntilMs > now) return TFT_GREEN;
     if (!state.initialized) return TFT_RED;
     if (now - state.lastSeenMs > LOST_TARGET_MS) return state.candidateHits > 0 ? TFT_YELLOW : TFT_RED;
     if (state.trend >= 3.0f) return TFT_GREEN;

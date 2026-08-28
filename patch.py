@@ -157,12 +157,23 @@ void drawTrackerValues(const TrackerSnapshot &snapshot) {
 
     if (!compact) {
         float displayedRate = state.packetsPerSecond;
-        if (state.lastSeenMs == 0 || millis() - state.lastSeenMs > 1800) displayedRate = 0.0f;
+        const uint32_t lastSeenAgeMs = state.lastSeenMs == 0 ? 0 : millis() - state.lastSeenMs;
+        const bool targetLost = state.lastSeenMs != 0 && lastSeenAgeMs > LOST_TARGET_MS;
+        if (state.lastSeenMs == 0 || lastSeenAgeMs > 1800) displayedRate = 0.0f;
 
         tft.setTextSize(FP);
         tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        const String stats = "RAW " + String(state.initialized ? state.rawRssi : -127) + "   " +
-                             String(displayedRate, 1) + "/s   H" + String(state.handoffs);
+        String stats;
+        if (targetLost) {
+            stats = "LAST " + formatAge(lastSeenAgeMs);
+            if (state.candidateHits > 0) {
+                stats += "   CAND " + String(state.candidateScore) + "%x" + String(state.candidateHits);
+            }
+        } else {
+            stats = "RAW " + String(state.initialized ? state.rawRssi : -127) + "   " +
+                    String(displayedRate, 1) + "/s   H" + String(state.handoffs) + " R" +
+                    String(state.reacquisitions);
+        }
         tft.drawCentreString(stats, tftWidth / 2, 146, 1);
     }
 }
