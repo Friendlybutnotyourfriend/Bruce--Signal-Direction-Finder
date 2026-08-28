@@ -28,6 +28,9 @@ jobs:
           - name: NM-CYD-C5
             env: nm-cyd-c5
             artifact: Bruce-DF-NM-CYD-C5
+          - name: ES3C28P 2.8in Cheap Black Display
+            env: ES3C28P
+            artifact: Bruce-BLE-Hunter-ES3C28P
 
     steps:
       - name: Checkout DF branch
