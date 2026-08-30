@@ -531,7 +531,7 @@ std::vector<String> activeScanLines(const SnifferState &state) {
     std::vector<String> lines;
     if (!state.activeComplete) {
         appendWrapped(lines, "No active request made yet");
-        appendWrapped(lines, "Hold for actions, then choose Active scan request");
+        appendWrapped(lines, "Press for actions, then choose Active scan request");
         appendWrapped(lines, "The 3-second burst transmits BLE scan requests and then returns to passive listening");
         return lines;
     }
@@ -690,7 +690,7 @@ void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool f
     if (scroll + visible < lines.size()) tft.drawRightString("v", tftWidth - 7, footerY - lineHeight, 1);
 
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.drawCentreString("Turn scroll  Press view  Hold actions", tftWidth / 2, footerY, 1);
+    tft.drawCentreString("Turn scroll  Press actions", tftWidth / 2, footerY, 1);
     drawStatusBar();
 }
 
@@ -964,13 +964,18 @@ void showGattResult(const GattResult &result, const SnifferTarget &target) {
     }
 }
 
-enum SnifferAction { ACTION_NONE, ACTION_ACTIVE_SCAN, ACTION_GATT, ACTION_FREEZE };
+enum SnifferAction { ACTION_NONE, ACTION_ACTIVE_SCAN, ACTION_GATT, ACTION_NEXT_VIEW, ACTION_FREEZE };
 
-SnifferAction chooseSnifferAction(bool frozen) {
+SnifferAction chooseSnifferAction(bool frozen, uint8_t view) {
     SnifferAction chosen = ACTION_NONE;
     std::vector<Option> actions;
     actions.emplace_back("Active scan request (3s)", [&chosen]() { chosen = ACTION_ACTIVE_SCAN; });
     actions.emplace_back("Connect + map GATT", [&chosen]() { chosen = ACTION_GATT; });
+    const uint8_t nextView = (view + 1) % VIEW_COUNT;
+    const char *nextViewName = nextView == VIEW_PLAIN   ? "Plain Speak" :
+                               nextView == VIEW_FIELDS  ? "AD Fields" :
+                               nextView == VIEW_RAW     ? "Raw Bytes" : "Active Result";
+    actions.emplace_back("Next view: " + String(nextViewName), [&chosen]() { chosen = ACTION_NEXT_VIEW; });
     actions.emplace_back(frozen ? "Unfreeze frame" : "Freeze frame", [&chosen]() { chosen = ACTION_FREEZE; });
     loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer actions", 0, false);
     return chosen;
@@ -1012,8 +1017,8 @@ void sniffTarget(const SnifferTarget &target) {
             scroll++;
             redraw = true;
             delay(70);
-        } else if (check(LongPress)) {
-            const SnifferAction action = chooseSnifferAction(frozen);
+        } else if (check(LongPress) || check(SelPress)) {
+            const SnifferAction action = chooseSnifferAction(frozen, view);
             if (action == ACTION_ACTIVE_SCAN) {
                 frozen = false;
                 runActiveScanBurst();
@@ -1033,15 +1038,13 @@ void sniffTarget(const SnifferTarget &target) {
                     if (!startPassiveTargetScan()) displayWarning("Passive scan restart failed", true);
                 }
                 scroll = 0;
+            } else if (action == ACTION_NEXT_VIEW) {
+                view = (view + 1) % VIEW_COUNT;
+                scroll = 0;
             } else if (action == ACTION_FREEZE) {
                 frozen = !frozen;
                 if (frozen) frozenState = stateSnapshot();
             }
-            redraw = true;
-            delay(100);
-        } else if (check(SelPress)) {
-            view = (view + 1) % VIEW_COUNT;
-            scroll = 0;
             redraw = true;
             delay(100);
         }
