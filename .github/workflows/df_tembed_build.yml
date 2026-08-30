@@ -24,13 +24,13 @@ jobs:
         include:
           - name: LilyGO T-Embed CC1101 Plus
             env: lilygo-t-embed-cc1101
-            artifact: Bruce-DF-T-Embed
-          - name: NM-CYD-C5
-            env: nm-cyd-c5
-            artifact: Bruce-DF-NM-CYD-C5
+            artifact: Bruce-BLE-Sniffer-TEmbed-CC1101-Plus
+          - name: M5Stack Cardputer ADV
+            env: m5stack-cardputer
+            artifact: Bruce-BLE-Sniffer-Cardputer-ADV
           - name: ES3C28P 2.8in Cheap Black Display
             env: ES3C28P
-            artifact: Bruce-BLE-Hunter-ES3C28P
+            artifact: Bruce-BLE-Sniffer-ES3C28P
 
     steps:
       - name: Checkout DF branch
@@ -51,12 +51,16 @@ jobs:
       - name: Build firmware
         run: platformio run -e "${{ matrix.env }}"
 
+      - name: Stage Launcher application image
+        run: cp ".pio/build/${{ matrix.env }}/firmware.bin" "${{ matrix.artifact }}-Launcher.bin"
+
       - name: Upload firmware and build outputs
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             Bruce-*.bin
+            ${{ matrix.artifact }}-Launcher.bin
             .pio/build/${{ matrix.env }}/firmware.bin
             .pio/build/${{ matrix.env }}/bootloader.bin
             .pio/build/${{ matrix.env }}/partitions.bin
