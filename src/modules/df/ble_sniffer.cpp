@@ -4,8 +4,10 @@
 #include "core/utils.h"
 #include "modules/ble/ble_common.h"
 #include <globals.h>
+#include <NimBLERemoteDescriptor.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -15,18 +17,24 @@ namespace {
 
 constexpr uint32_t DISCOVERY_TIME_MS = 5000;
 constexpr uint32_t LOST_DEVICE_MS = 4000;
+constexpr uint32_t ACTIVE_SCAN_TIME_MS = 3000;
 constexpr size_t MAX_PAYLOAD_BYTES = 96;
 constexpr size_t MAX_NAME_BYTES = 40;
+constexpr size_t MAX_GATT_LINES = 220;
 constexpr uint8_t VIEW_PLAIN = 0;
 constexpr uint8_t VIEW_FIELDS = 1;
 constexpr uint8_t VIEW_RAW = 2;
-constexpr uint8_t VIEW_COUNT = 3;
+constexpr uint8_t VIEW_ACTIVE = 3;
+constexpr uint8_t VIEW_COUNT = 4;
 
 struct SnifferTarget {
     String name;
     String address;
     int rssi = -127;
     uint16_t companyId = 0;
+    uint8_t addressType = 0;
+    bool connectable = false;
+    bool scannable = false;
 };
 
 struct SnifferState {
@@ -42,13 +50,38 @@ struct SnifferState {
     uint32_t payloadChanges = 0;
     uint32_t payloadHash = 0;
     uint32_t lastSeenMs = 0;
+    uint8_t scanResponse[MAX_PAYLOAD_BYTES]{};
+    uint8_t scanResponseLen = 0;
+    uint32_t activeBursts = 0;
+    uint32_t activeReports = 0;
+    uint32_t activeResponses = 0;
     bool hasTxPower = false;
+    bool connectable = false;
+    bool scannable = false;
+    bool activeComplete = false;
     bool initialized = false;
+};
+
+struct GattResult {
+    bool connected = false;
+    bool discovered = false;
+    String error;
+    uint16_t services = 0;
+    uint16_t characteristics = 0;
+    uint16_t descriptors = 0;
+    uint16_t readable = 0;
+    uint16_t writable = 0;
+    uint16_t notifiable = 0;
+    uint16_t indicatable = 0;
+    std::vector<String> serviceSummaries;
+    std::vector<String> technicalLines;
+    bool truncated = false;
 };
 
 portMUX_TYPE snifferMux = portMUX_INITIALIZER_UNLOCKED;
 SnifferState snifferState;
 char selectedAddress[18]{};
+bool activeBurstCapture = false;
 
 uint16_t readLe16(const uint8_t *data) {
     return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
@@ -127,6 +160,58 @@ const char *serviceName(uint16_t uuid) {
         case 0xFD6F: return "Exposure Notification";
         default: return nullptr;
     }
+}
+
+const char *characteristicName(uint16_t uuid) {
+    switch (uuid) {
+        case 0x2A00: return "Device Name";
+        case 0x2A01: return "Appearance";
+        case 0x2A19: return "Battery Level";
+        case 0x2A24: return "Model Number";
+        case 0x2A25: return "Serial Number";
+        case 0x2A26: return "Firmware Revision";
+        case 0x2A27: return "Hardware Revision";
+        case 0x2A29: return "Manufacturer Name";
+        case 0x2A37: return "Heart Rate Measurement";
+        case 0x2A4D: return "HID Report";
+        case 0x2A4E: return "HID Protocol Mode";
+        default: return nullptr;
+    }
+}
+
+const char *descriptorName(uint16_t uuid) {
+    switch (uuid) {
+        case 0x2900: return "Extended Properties";
+        case 0x2901: return "User Description";
+        case 0x2902: return "Client Configuration";
+        case 0x2904: return "Presentation Format";
+        default: return nullptr;
+    }
+}
+
+bool uuid16FromText(String uuid, uint16_t &shortUuid) {
+    uuid.toLowerCase();
+    if (uuid.startsWith("0x")) uuid = uuid.substring(2);
+    if (uuid.length() == 4) {
+        shortUuid = static_cast<uint16_t>(strtoul(uuid.c_str(), nullptr, 16));
+        return true;
+    }
+    if (uuid.length() == 36 && uuid.substring(0, 4) == "0000" &&
+        uuid.substring(8) == "-0000-1000-8000-00805f9b34fb") {
+        shortUuid = static_cast<uint16_t>(strtoul(uuid.substring(4, 8).c_str(), nullptr, 16));
+        return true;
+    }
+    return false;
+}
+
+String friendlyUuid(const String &uuid, const char *(*lookup)(uint16_t)) {
+    uint16_t shortUuid = 0;
+    if (!uuid16FromText(uuid, shortUuid)) return uuid;
+    const char *known = lookup(shortUuid);
+    String output = "0x" + String(shortUuid, HEX);
+    output.toUpperCase();
+    if (known) output += " " + String(known);
+    return output;
 }
 
 const char *appearanceName(uint16_t appearance) {
@@ -442,6 +527,38 @@ std::vector<String> rawLines(const SnifferState &state) {
     return lines;
 }
 
+std::vector<String> activeScanLines(const SnifferState &state) {
+    std::vector<String> lines;
+    if (!state.activeComplete) {
+        appendWrapped(lines, "No active request made yet");
+        appendWrapped(lines, "Hold for actions, then choose Active scan request");
+        appendWrapped(lines, "The 3-second burst transmits BLE scan requests and then returns to passive listening");
+        return lines;
+    }
+
+    appendWrapped(lines, "Active bursts: " + String(state.activeBursts));
+    appendWrapped(lines, "Scannable reports seen: " + String(state.activeReports));
+    appendWrapped(lines, "Scan responses received: " + String(state.activeResponses));
+    if (state.scanResponseLen == 0) {
+        appendWrapped(lines, state.scannable ? "No extra scan-response data returned" :
+                                              "Target did not advertise as scannable");
+        appendWrapped(lines, "This does not prove the device has no extra information");
+        return lines;
+    }
+
+    appendWrapped(lines, "Extra response: " + String(state.scanResponseLen) + " byte(s)");
+    SnifferState response = state;
+    std::memset(response.payload, 0, sizeof(response.payload));
+    std::memcpy(response.payload, state.scanResponse, state.scanResponseLen);
+    response.payloadLen = state.scanResponseLen;
+    response.payloadChanges = 0;
+    response.advType = 4;
+    std::vector<String> decoded = decodeFields(response, true);
+    for (size_t i = 4; i < decoded.size(); i++) lines.push_back(decoded[i]);
+    appendWrapped(lines, "Response bytes: " + bytesToHex(state.scanResponse, state.scanResponseLen, 28, true));
+    return lines;
+}
+
 void copyAddress(char destination[18], const std::string &source) {
     std::memset(destination, 0, 18);
     std::strncpy(destination, source.c_str(), 17);
@@ -455,9 +572,13 @@ void copyName(char destination[MAX_NAME_BYTES + 1], const String &source) {
 void resetState(const SnifferTarget &target) {
     portENTER_CRITICAL(&snifferMux);
     snifferState = SnifferState{};
+    activeBurstCapture = false;
     copyAddress(selectedAddress, std::string(target.address.c_str()));
     copyAddress(snifferState.address, std::string(target.address.c_str()));
     if (!target.name.isEmpty()) copyName(snifferState.name, target.name);
+    snifferState.addressType = target.addressType;
+    snifferState.connectable = target.connectable;
+    snifferState.scannable = target.scannable;
     portEXIT_CRITICAL(&snifferMux);
 }
 
@@ -481,7 +602,10 @@ public:
         if (!selected) return;
 
         const std::vector<uint8_t> &payload = device->getPayload();
-        const size_t payloadLength = payload.size() < MAX_PAYLOAD_BYTES ? payload.size() : MAX_PAYLOAD_BYTES;
+        const size_t advertisedLength = std::min<size_t>(device->getAdvLength(), payload.size());
+        const size_t payloadLength = advertisedLength < MAX_PAYLOAD_BYTES ? advertisedLength : MAX_PAYLOAD_BYTES;
+        const size_t responseAvailable = payload.size() > advertisedLength ? payload.size() - advertisedLength : 0;
+        const size_t responseLength = responseAvailable < MAX_PAYLOAD_BYTES ? responseAvailable : MAX_PAYLOAD_BYTES;
         const uint32_t hash = payloadLength ? fnv1a(payload.data(), payloadLength) : 0;
         String name = cleanText(device->getName());
         if (name.isEmpty() && payloadLength) name = localNameFromPayload(payload.data(), payloadLength);
@@ -499,9 +623,20 @@ public:
         snifferState.advType = device->getAdvType();
         snifferState.hasTxPower = device->haveTXPower();
         snifferState.txPower = snifferState.hasTxPower ? device->getTXPower() : 0;
+        snifferState.connectable = device->isConnectable();
+        snifferState.scannable = device->isScannable();
         snifferState.lastSeenMs = millis();
         snifferState.packets++;
         snifferState.initialized = true;
+        if (activeBurstCapture) {
+            if (device->isScannable()) snifferState.activeReports++;
+            if (responseLength > 0) {
+                std::memset(snifferState.scanResponse, 0, MAX_PAYLOAD_BYTES);
+                std::memcpy(snifferState.scanResponse, payload.data() + advertisedLength, responseLength);
+                snifferState.scanResponseLen = static_cast<uint8_t>(responseLength);
+                snifferState.activeResponses++;
+            }
+        }
         if (!name.isEmpty()) copyName(snifferState.name, name);
         portEXIT_CRITICAL(&snifferMux);
     }
@@ -515,7 +650,9 @@ void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool f
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
 
-    const char *viewName = view == VIEW_PLAIN ? "PLAIN SPEAK" : (view == VIEW_FIELDS ? "AD FIELDS" : "RAW BYTES");
+    const char *viewName = view == VIEW_PLAIN   ? "PLAIN SPEAK" :
+                           view == VIEW_FIELDS  ? "AD FIELDS" :
+                           view == VIEW_RAW     ? "RAW BYTES" : "ACTIVE RESULT";
     tft.drawCentreString(String("BLE SNIFFER - ") + viewName, tftWidth / 2, 29, 1);
 
     String identity = state.name[0] ? String(state.name) : String(state.address);
@@ -534,8 +671,10 @@ void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool f
         lines = decodeFields(state, true);
     else if (view == VIEW_FIELDS)
         lines = decodeFields(state, false);
-    else
+    else if (view == VIEW_RAW)
         lines = rawLines(state);
+    else
+        lines = activeScanLines(state);
 
     const int lineHeight = 12;
     const int firstY = 69;
@@ -551,8 +690,290 @@ void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool f
     if (scroll + visible < lines.size()) tft.drawRightString("v", tftWidth - 7, footerY - lineHeight, 1);
 
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.drawCentreString("Turn scroll  Press view  Hold freeze", tftWidth / 2, footerY, 1);
+    tft.drawCentreString("Turn scroll  Press view  Hold actions", tftWidth / 2, footerY, 1);
     drawStatusBar();
+}
+
+bool confirmRadioAction(const String &title, const std::vector<String> &messages) {
+    const uint32_t openedAt = millis();
+    while (true) {
+        tft.fillScreen(bruceConfig.bgColor);
+        drawMainBorder(false);
+        tft.setTextSize(FP);
+        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
+        tft.drawCentreString(title, tftWidth / 2, 31, 1);
+
+        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+        int y = 54;
+        for (const String &message : messages) {
+            tft.drawCentreString(message, tftWidth / 2, y, 1);
+            y += 15;
+        }
+        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
+        tft.drawCentreString("Select: continue   Esc: cancel", tftWidth / 2, tftHeight - 21, 1);
+        drawStatusBar();
+
+        if (check(EscPress)) return false;
+        if (millis() - openedAt > 650 && check(SelPress)) return true;
+        delay(25);
+    }
+}
+
+bool startPassiveTargetScan() {
+    if (pBLEScan == nullptr) return false;
+    pBLEScan->stop();
+    pBLEScan->clearResults();
+    pBLEScan->setActiveScan(false);
+    pBLEScan->setInterval(SCAN_INT);
+    pBLEScan->setWindow(SCAN_WINDOW);
+    pBLEScan->setMaxResults(0);
+    pBLEScan->setScanCallbacks(&snifferCallbacks, true);
+    return pBLEScan->start(0, false, true);
+}
+
+void runActiveScanBurst() {
+    if (!confirmRadioAction(
+            "ACTIVE SCAN - TRANSMITS",
+            {"3-second scan-request burst", "Nearby scannable devices", "may receive requests", "No connection is made"}
+        ))
+        return;
+
+    pBLEScan->stop();
+    pBLEScan->clearResults();
+    portENTER_CRITICAL(&snifferMux);
+    snifferState.scanResponseLen = 0;
+    std::memset(snifferState.scanResponse, 0, MAX_PAYLOAD_BYTES);
+    snifferState.activeReports = 0;
+    snifferState.activeResponses = 0;
+    snifferState.activeComplete = false;
+    snifferState.activeBursts++;
+    activeBurstCapture = true;
+    portEXIT_CRITICAL(&snifferMux);
+
+    pBLEScan->setActiveScan(false);
+    pBLEScan->setInterval(SCAN_INT);
+    pBLEScan->setWindow(SCAN_WINDOW);
+    pBLEScan->setMaxResults(0);
+    pBLEScan->setScanCallbacks(&snifferCallbacks, true);
+
+    const bool started = pBLEScan->start(0, false, true);
+    const uint32_t startedAt = millis();
+    while (started && millis() - startedAt < ACTIVE_SCAN_TIME_MS) {
+        const uint32_t remaining = (ACTIVE_SCAN_TIME_MS - (millis() - startedAt) + 999) / 1000;
+        tft.fillScreen(bruceConfig.bgColor);
+        drawMainBorder(false);
+        tft.setTextSize(FP);
+        tft.setTextColor(TFT_RED, bruceConfig.bgColor);
+        tft.drawCentreString("ACTIVE - TRANSMITTING", tftWidth / 2, 40, 1);
+        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+        tft.drawCentreString("BLE scan requests are on air", tftWidth / 2, 65, 1);
+        tft.drawCentreString("Returning to passive in " + String(remaining) + "s", tftWidth / 2, 82, 1);
+        tft.drawCentreString("Esc stops burst early", tftWidth / 2, tftHeight - 21, 1);
+        drawStatusBar();
+        if (check(EscPress)) break;
+        delay(80);
+    }
+
+    pBLEScan->stop();
+    portENTER_CRITICAL(&snifferMux);
+    activeBurstCapture = false;
+    snifferState.activeComplete = true;
+    portEXIT_CRITICAL(&snifferMux);
+    startPassiveTargetScan();
+}
+
+String characteristicProperties(const NimBLERemoteCharacteristic *characteristic) {
+    String properties;
+    if (characteristic->canRead()) properties += "R ";
+    if (characteristic->canWrite()) properties += "W ";
+    if (characteristic->canWriteNoResponse()) properties += "WNR ";
+    if (characteristic->canNotify()) properties += "N ";
+    if (characteristic->canIndicate()) properties += "I ";
+    properties.trim();
+    return properties.isEmpty() ? "none declared" : properties;
+}
+
+void addGattTechnicalLine(GattResult &result, const String &line) {
+    if (result.technicalLines.size() < MAX_GATT_LINES)
+        result.technicalLines.push_back(line);
+    else
+        result.truncated = true;
+}
+
+GattResult enumerateGatt(const SnifferTarget &target) {
+    GattResult result;
+    pBLEScan->stop();
+    pBLEScan->setScanCallbacks(nullptr, false);
+    pBLEScan->clearResults();
+
+    displayTextLine("Connecting for GATT map...");
+    NimBLEClient *client = NimBLEDevice::createClient();
+    if (client == nullptr) {
+        result.error = "Could not create BLE client";
+        return result;
+    }
+
+    client->setConnectTimeout(8000);
+    client->setConnectRetries(0);
+    client->setConnectionParams(12, 24, 0, 400);
+    const std::string address(target.address.c_str());
+    const NimBLEAddress peer(address, target.addressType);
+    if (!client->connect(peer, true, false, false)) {
+        result.error = "Connection failed (error " + String(client->getLastError()) + ")";
+        NimBLEDevice::deleteClient(client);
+        return result;
+    }
+
+    result.connected = true;
+    displayTextLine("Mapping GATT structure only...");
+    if (!client->discoverAttributes()) {
+        result.error = "GATT discovery failed (error " + String(client->getLastError()) + ")";
+    } else {
+        result.discovered = true;
+        const std::vector<NimBLERemoteService *> &services = client->getServices(false);
+        for (const NimBLERemoteService *service : services) {
+            if (service == nullptr) continue;
+            result.services++;
+            const String serviceUuid(service->getUUID().toString().c_str());
+            const String serviceLabel = friendlyUuid(serviceUuid, serviceName);
+            result.serviceSummaries.push_back(serviceLabel);
+            addGattTechnicalLine(result, "SERVICE " + serviceLabel);
+
+            const std::vector<NimBLERemoteCharacteristic *> &characteristics =
+                service->getCharacteristics(false);
+            for (const NimBLERemoteCharacteristic *characteristic : characteristics) {
+                if (characteristic == nullptr) continue;
+                result.characteristics++;
+                const bool canRead = characteristic->canRead();
+                const bool canWrite = characteristic->canWrite() || characteristic->canWriteNoResponse();
+                const bool canNotify = characteristic->canNotify();
+                const bool canIndicate = characteristic->canIndicate();
+                if (canRead) result.readable++;
+                if (canWrite) result.writable++;
+                if (canNotify) result.notifiable++;
+                if (canIndicate) result.indicatable++;
+
+                const String characteristicUuid(characteristic->getUUID().toString().c_str());
+                addGattTechnicalLine(
+                    result, "  CHAR " + friendlyUuid(characteristicUuid, characteristicName)
+                );
+                addGattTechnicalLine(result, "    PROPS " + characteristicProperties(characteristic));
+
+                const std::vector<NimBLERemoteDescriptor *> &descriptors =
+                    characteristic->getDescriptors(false);
+                for (const NimBLERemoteDescriptor *descriptor : descriptors) {
+                    if (descriptor == nullptr) continue;
+                    result.descriptors++;
+                    const String descriptorUuid(descriptor->getUUID().toString().c_str());
+                    addGattTechnicalLine(
+                        result, "    DESC " + friendlyUuid(descriptorUuid, descriptorName)
+                    );
+                }
+            }
+        }
+    }
+
+    if (client->isConnected()) client->disconnect();
+    delay(80);
+    NimBLEDevice::deleteClient(client);
+    return result;
+}
+
+std::vector<String> gattPlainLines(const GattResult &result) {
+    std::vector<String> lines;
+    if (!result.connected) {
+        appendWrapped(lines, result.error.isEmpty() ? "Connection failed" : result.error);
+        appendWrapped(lines, "No GATT information collected");
+        return lines;
+    }
+    if (!result.discovered) {
+        appendWrapped(lines, result.error.isEmpty() ? "GATT discovery failed" : result.error);
+        appendWrapped(lines, "Disconnected without reading values");
+        return lines;
+    }
+
+    appendWrapped(lines, "Structure mapped, then disconnected");
+    appendWrapped(lines, "No characteristic values read");
+    appendWrapped(lines, "No writes or subscriptions made");
+    appendWrapped(lines, String(result.services) + " services, " + String(result.characteristics) +
+                             " characteristics, " + String(result.descriptors) + " descriptors");
+    appendWrapped(lines, String(result.readable) + " declare read support");
+    appendWrapped(lines, String(result.writable) + " declare write support");
+    appendWrapped(lines, String(result.notifiable) + " notify, " + String(result.indicatable) + " indicate");
+    if (result.writable > 0) {
+        appendWrapped(lines, "Writable declarations mean control/config endpoints may exist; access control was not tested");
+    }
+    for (const String &service : result.serviceSummaries) appendWrapped(lines, "Service: " + service);
+    if (result.truncated) appendWrapped(lines, "Technical tree truncated to protect memory");
+    return lines;
+}
+
+void drawGattViewer(
+    const GattResult &result, bool technical, size_t &scroll, const String &targetIdentity
+) {
+    tft.fillScreen(bruceConfig.bgColor);
+    drawMainBorder(false);
+    tft.setTextSize(FP);
+    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+    tft.drawCentreString(technical ? "GATT TECHNICAL TREE" : "GATT PLAIN SPEAK", tftWidth / 2, 29, 1);
+    tft.drawCentreString(targetIdentity, tftWidth / 2, 42, 1);
+    tft.setTextColor(TFT_GREEN, bruceConfig.bgColor);
+    tft.drawCentreString("DISCONNECTED - NO VALUES ACCESSED", tftWidth / 2, 54, 1);
+
+    std::vector<String> lines = technical ? result.technicalLines : gattPlainLines(result);
+    if (technical && lines.empty()) lines.push_back(result.error.isEmpty() ? "No GATT tree" : result.error);
+    const int lineHeight = 12;
+    const int firstY = 69;
+    const int footerY = tftHeight - 19;
+    const int visible = (footerY - firstY) / lineHeight;
+    if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1;
+    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+    for (int row = 0; row < visible && scroll + row < lines.size(); row++) {
+        tft.drawString(lines[scroll + row], 9, firstY + row * lineHeight, 1);
+    }
+    if (scroll > 0) tft.drawRightString("^", tftWidth - 7, firstY, 1);
+    if (scroll + visible < lines.size()) tft.drawRightString("v", tftWidth - 7, footerY - lineHeight, 1);
+    tft.drawCentreString("Turn scroll  Press plain/tree  Esc back", tftWidth / 2, footerY, 1);
+    drawStatusBar();
+}
+
+void showGattResult(const GattResult &result, const SnifferTarget &target) {
+    bool technical = false;
+    size_t scroll = 0;
+    bool redraw = true;
+    while (!check(EscPress)) {
+        if (check(PrevPress)) {
+            if (scroll > 0) scroll--;
+            redraw = true;
+            delay(70);
+        } else if (check(NextPress)) {
+            scroll++;
+            redraw = true;
+            delay(70);
+        } else if (check(SelPress)) {
+            technical = !technical;
+            scroll = 0;
+            redraw = true;
+            delay(100);
+        }
+        if (redraw) {
+            drawGattViewer(result, technical, scroll, target.name.isEmpty() ? target.address : target.name);
+            redraw = false;
+        }
+        delay(10);
+    }
+}
+
+enum SnifferAction { ACTION_NONE, ACTION_ACTIVE_SCAN, ACTION_GATT, ACTION_FREEZE };
+
+SnifferAction chooseSnifferAction(bool frozen) {
+    SnifferAction chosen = ACTION_NONE;
+    std::vector<Option> actions;
+    actions.emplace_back("Active scan request (3s)", [&chosen]() { chosen = ACTION_ACTIVE_SCAN; });
+    actions.emplace_back("Connect + map GATT", [&chosen]() { chosen = ACTION_GATT; });
+    actions.emplace_back(frozen ? "Unfreeze frame" : "Freeze frame", [&chosen]() { chosen = ACTION_FREEZE; });
+    loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer actions", 0, false);
+    return chosen;
 }
 
 void sniffTarget(const SnifferTarget &target) {
@@ -565,14 +986,9 @@ void sniffTarget(const SnifferTarget &target) {
 
     pBLEScan->stop();
     pBLEScan->clearResults();
-    pBLEScan->setActiveScan(true);
-    pBLEScan->setInterval(SCAN_INT);
-    pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(0);
-    pBLEScan->setScanCallbacks(&snifferCallbacks, true);
     resetState(target);
 
-    if (!pBLEScan->start(0, false, true)) {
+    if (!startPassiveTargetScan()) {
         pBLEScan->setScanCallbacks(nullptr, false);
         pBLEScan->setMaxResults(0xFF);
         displayError("Unable to start BLE scan", true);
@@ -597,8 +1013,30 @@ void sniffTarget(const SnifferTarget &target) {
             redraw = true;
             delay(70);
         } else if (check(LongPress)) {
-            frozen = !frozen;
-            if (frozen) frozenState = stateSnapshot();
+            const SnifferAction action = chooseSnifferAction(frozen);
+            if (action == ACTION_ACTIVE_SCAN) {
+                frozen = false;
+                runActiveScanBurst();
+                view = VIEW_ACTIVE;
+                scroll = 0;
+            } else if (action == ACTION_GATT) {
+                frozen = false;
+                if (!target.connectable) {
+                    displayWarning("Target is not advertising as connectable", true);
+                } else if (confirmRadioAction(
+                               "CONNECT + MAP GATT",
+                               {"Target will see a connection", "Discovers structure only", "NO VALUE READS",
+                                "NO WRITES OR SUBSCRIPTIONS"}
+                           )) {
+                    const GattResult result = enumerateGatt(target);
+                    showGattResult(result, target);
+                    if (!startPassiveTargetScan()) displayWarning("Passive scan restart failed", true);
+                }
+                scroll = 0;
+            } else if (action == ACTION_FREEZE) {
+                frozen = !frozen;
+                if (frozen) frozenState = stateSnapshot();
+            }
             redraw = true;
             delay(100);
         } else if (check(SelPress)) {
@@ -647,6 +1085,9 @@ std::vector<SnifferTarget> discoverTargets() {
         SnifferTarget target;
         target.address = device->getAddress().toString().c_str();
         target.rssi = device->getRSSI();
+        target.addressType = device->getAddressType();
+        target.connectable = device->isConnectable();
+        target.scannable = device->isScannable();
         const std::vector<uint8_t> &payload = device->getPayload();
         target.name = cleanText(device->getName());
         if (target.name.isEmpty() && !payload.empty()) target.name = localNameFromPayload(payload.data(), payload.size());
