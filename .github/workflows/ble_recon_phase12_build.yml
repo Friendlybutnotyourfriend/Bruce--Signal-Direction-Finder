@@ -1,0 +1,88 @@
+name: BLE Recon Phase 1-2 Builds
+
+on:
+  push:
+    branches:
+      - agent/ble-recon-phase1-2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ble-recon-phase12-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: NM-CYD-C5
+            env: nm-cyd-c5
+            artifact: Launcher-NM-CYD-C5.bin
+          - name: ES3C28P 2.8in Cheap Black Display
+            env: ES3C28P
+            artifact: Launcher-ES3C28P.bin
+          - name: LilyGO T-Embed CC1101 Plus
+            env: lilygo-t-embed-cc1101
+            artifact: Launcher-T-Embed-CC1101-Plus.bin
+
+    steps:
+      - name: Checkout Phase 1-2 branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+          python -m pip install --upgrade pip
+          pip install platformio requests esptool intelhex
+
+      - name: Pin Bruce version 1.12.4
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("platformio.ini")
+          s = p.read_text()
+          old = "-DBRUCE_VERSION='\\\"dev\\\"'"
+          new = "-DBRUCE_VERSION='\\\"1.12.4\\\"'"
+          if old not in s:
+              raise SystemExit("Could not find BRUCE_VERSION build flag")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Build firmware
+        run: platformio run -e "${{ matrix.env }}"
+
+      - name: Stage Launcher image
+        run: |
+          test -f "Bruce-${{ matrix.env }}.bin"
+          cp "Bruce-${{ matrix.env }}.bin" "${{ matrix.artifact }}"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          env = "${{ matrix.env }}"
+          out = Path("${{ matrix.artifact }}")
+          data = out.read_bytes()
+          print(f"Launcher image: {out} ({len(data)} bytes)")
+          print(f"SHA256: {hashlib.sha256(data).hexdigest()}")
+          print(f"Board env: {env}")
+          PY
+
+      - name: Upload Launcher-flashable image only
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLE-Recon-Phase1-2-${{ matrix.env }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
