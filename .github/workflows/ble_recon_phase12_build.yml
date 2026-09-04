@@ -1,0 +1,124 @@
+name: BLE Recon Phase 1-2 Builds
+
+on:
+  push:
+    branches:
+      - agent/ble-recon-phase1-2
+  pull_request:
+    branches:
+      - agent/ble-hunter-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ble-recon-phase12-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: NM-CYD-C5
+            env: nm-cyd-c5
+            chip: esp32c5
+            artifact: Launcher-NM-CYD-C5.bin
+          - name: ES3C28P 2.8in Cheap Black Display
+            env: ES3C28P
+            chip: esp32s3
+            artifact: Launcher-ES3C28P.bin
+          - name: LilyGO T-Embed CC1101 Plus
+            env: lilygo-t-embed-cc1101
+            chip: esp32s3
+            artifact: Launcher-T-Embed-CC1101-Plus.bin
+
+    steps:
+      - name: Checkout Phase 1-2 branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+          python -m pip install --upgrade pip
+          pip install platformio requests esptool intelhex
+
+      - name: Pin Bruce 1.12.4 and enable NimBLE extended advertising
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("platformio.ini")
+          s = p.read_text()
+          old = "-DBRUCE_VERSION='\"dev\"'"
+          new = "-DBRUCE_VERSION='\"1.12.4\"'"
+          if old not in s:
+              raise SystemExit("Could not find BRUCE_VERSION build flag")
+          s = s.replace(old, new, 1)
+          ext = "\t-DMYNEWT_VAL_BLE_EXT_ADV=1\n"
+          if ext not in s:
+              anchor = new + "\n"
+              if anchor not in s:
+                  raise SystemExit("Could not find BRUCE_VERSION anchor")
+              s = s.replace(anchor, anchor + ext, 1)
+          p.write_text(s)
+          PY
+
+      - name: Apply CI compatibility patch
+        run: python tools/patch_ble_recon_v3_ci.py
+
+      - name: Build firmware
+        run: |
+          set -o pipefail
+          platformio run -e "${{ matrix.env }}" 2>&1 | tee "build-${{ matrix.env }}.log"
+
+      - name: Build Launcher-only image
+        run: |
+          test -f ".pio/build/${{ matrix.env }}/partitions.bin"
+          test -f ".pio/build/${{ matrix.env }}/firmware.bin"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          env = "${{ matrix.env }}"
+          out = Path("${{ matrix.artifact }}")
+          partitions = Path(f".pio/build/{env}/partitions.bin").read_bytes()
+          app = Path(f".pio/build/{env}/firmware.bin").read_bytes()
+          app_offset = 0x10000
+          partition_offset = 0x8000
+          image = bytearray(app_offset + len(app))
+          image[partition_offset:partition_offset + len(partitions)] = partitions
+          image[app_offset:app_offset + len(app)] = app
+          out.write_bytes(image)
+          print(f"Launcher-only image: {out} ({len(image)} bytes)")
+          print(f"Partition table: {len(partitions)} bytes @ 0x{partition_offset:X}")
+          print(f"Application: {len(app)} bytes @ 0x{app_offset:X}")
+          print("Bootloader included: NO")
+          print(f"SHA256: {hashlib.sha256(image).hexdigest()}")
+          PY
+
+      - name: Upload Launcher-only image
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLE-Recon-Phase1-2-${{ matrix.env }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLE-Recon-Phase1-2-log-${{ matrix.env }}
+          path: build-${{ matrix.env }}.log
+          if-no-files-found: ignore
+          retention-days: 14
