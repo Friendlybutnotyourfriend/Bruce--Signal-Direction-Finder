@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/ble-recon-phase1-2
+  pull_request:
+    branches:
+      - agent/ble-hunter-v2
   workflow_dispatch:
 
 permissions:
