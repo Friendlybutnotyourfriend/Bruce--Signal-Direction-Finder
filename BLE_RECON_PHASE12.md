@@ -35,4 +35,4 @@ CI targets exactly:
 
 CI pins the displayed Bruce version to 1.12.4 and enables NimBLE extended advertising with `MYNEWT_VAL_BLE_EXT_ADV=1` while preserving the normal global build flags.
 
-Artifacts are named `Launcher-*.bin` and are intended to be installed through bmorcelli's Launcher, which preserves the Launcher/bootloader/partition-table boundary by extracting the application image from the merged artifact.
+Artifacts are **Launcher-only** images: partition table at `0x8000` plus Bruce application at `0x10000`, with **no bootloader**. They are intended to be installed through bmorcelli's Launcher so the existing Launcher/bootloader/partition-table installation boundary is preserved.
