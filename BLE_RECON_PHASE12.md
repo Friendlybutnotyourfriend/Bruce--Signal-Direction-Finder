@@ -36,3 +36,5 @@ CI targets exactly:
 CI pins the displayed Bruce version to 1.12.4 and enables NimBLE extended advertising with `MYNEWT_VAL_BLE_EXT_ADV=1` while preserving the normal global build flags.
 
 Artifacts are **Launcher-only** images: partition table at `0x8000` plus Bruce application at `0x10000`, with **no bootloader**. They are intended to be installed through bmorcelli's Launcher so the existing Launcher/bootloader/partition-table installation boundary is preserved.
+
+CI also uploads a per-board build log so any compile failure can be corrected without guessing at the runner output.
