@@ -74,6 +74,9 @@ jobs:
           p.write_text(s)
           PY
 
+      - name: Apply CI compatibility patch
+        run: python tools/patch_ble_recon_v3_ci.py
+
       - name: Build firmware
         run: |
           set -o pipefail
@@ -86,22 +89,16 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import hashlib
-
           env = "${{ matrix.env }}"
           out = Path("${{ matrix.artifact }}")
           partitions = Path(f".pio/build/{env}/partitions.bin").read_bytes()
           app = Path(f".pio/build/{env}/firmware.bin").read_bytes()
-
-          # bmorcelli Launcher format: partition table at 0x8000 and app at 0x10000.
-          # Deliberately omit bootloader.bin so Launcher can replace only the Bruce app.
           app_offset = 0x10000
           partition_offset = 0x8000
-          image_size = app_offset + len(app)
-          image = bytearray(image_size)
+          image = bytearray(app_offset + len(app))
           image[partition_offset:partition_offset + len(partitions)] = partitions
           image[app_offset:app_offset + len(app)] = app
           out.write_bytes(image)
-
           print(f"Launcher-only image: {out} ({len(image)} bytes)")
           print(f"Partition table: {len(partitions)} bytes @ 0x{partition_offset:X}")
           print(f"Application: {len(app)} bytes @ 0x{app_offset:X}")
