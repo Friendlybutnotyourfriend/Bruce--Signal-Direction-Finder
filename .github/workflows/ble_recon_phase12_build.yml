@@ -27,12 +27,15 @@ jobs:
         include:
           - name: NM-CYD-C5
             env: nm-cyd-c5
+            chip: esp32c5
             artifact: Launcher-NM-CYD-C5.bin
           - name: ES3C28P 2.8in Cheap Black Display
             env: ES3C28P
+            chip: esp32s3
             artifact: Launcher-ES3C28P.bin
           - name: LilyGO T-Embed CC1101 Plus
             env: lilygo-t-embed-cc1101
+            chip: esp32s3
             artifact: Launcher-T-Embed-CC1101-Plus.bin
 
     steps:
@@ -74,22 +77,37 @@ jobs:
       - name: Build firmware
         run: platformio run -e "${{ matrix.env }}"
 
-      - name: Stage Launcher image
+      - name: Build Launcher-only image
         run: |
-          test -f "Bruce-${{ matrix.env }}.bin"
-          cp "Bruce-${{ matrix.env }}.bin" "${{ matrix.artifact }}"
+          test -f ".pio/build/${{ matrix.env }}/partitions.bin"
+          test -f ".pio/build/${{ matrix.env }}/firmware.bin"
           python - <<'PY'
           from pathlib import Path
           import hashlib
+
           env = "${{ matrix.env }}"
           out = Path("${{ matrix.artifact }}")
-          data = out.read_bytes()
-          print(f"Launcher image: {out} ({len(data)} bytes)")
-          print(f"SHA256: {hashlib.sha256(data).hexdigest()}")
-          print(f"Board env: {env}")
+          partitions = Path(f".pio/build/{env}/partitions.bin").read_bytes()
+          app = Path(f".pio/build/{env}/firmware.bin").read_bytes()
+
+          # bmorcelli Launcher format: keep the partition table at 0x8000
+          # and the Bruce application at 0x10000. Do NOT include bootloader.bin.
+          app_offset = 0x10000
+          partition_offset = 0x8000
+          image_size = app_offset + len(app)
+          image = bytearray(image_size)
+          image[partition_offset:partition_offset + len(partitions)] = partitions
+          image[app_offset:app_offset + len(app)] = app
+          out.write_bytes(image)
+
+          print(f"Launcher-only image: {out} ({len(image)} bytes)")
+          print(f"Partition table: {len(partitions)} bytes @ 0x{partition_offset:X}")
+          print(f"Application: {len(app)} bytes @ 0x{app_offset:X}")
+          print(f"Bootloader included: NO")
+          print(f"SHA256: {hashlib.sha256(image).hexdigest()}")
           PY
 
-      - name: Upload Launcher-flashable image only
+      - name: Upload Launcher-only image
         uses: actions/upload-artifact@v4
         with:
           name: BLE-Recon-Phase1-2-${{ matrix.env }}
