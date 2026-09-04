@@ -23,7 +23,7 @@ This branch is stacked on `agent/ble-hunter-v2` and is intended for hardware val
 - Google Service (FCF1): verify payload length, first/last seen, count, MAC changes, payload changes, correlated MAC+payload changes, MAC-only and payload-only changes.
 - Active Scan: only after confirmation; verify scan-response capture.
 - GATT: only after confirmation; verify structure/properties are mapped and no characteristic values are read/written/subscribed.
-- Extended advertising: verify legacy/extended, SID, PHY, data status and periodic interval when a suitable advertiser is available.
+- Extended advertising: verify legacy/extended detection and raw payload capture. The current NimBLE dependency does not expose SID/PHY/data-status helpers through `NimBLEAdvertisedDevice`; do not fake those fields.
 
 ## Deployment
 
