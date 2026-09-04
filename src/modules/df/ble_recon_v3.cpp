@@ -15,50 +15,42 @@
 #include <vector>
 
 namespace {
-
-constexpr uint32_t DISCOVERY_TIME_MS = 5000;
-constexpr uint32_t LOST_TARGET_MS = 3000;
+constexpr uint32_t DISCOVERY_MS = 5000;
+constexpr uint32_t LOST_MS = 3000;
 constexpr uint32_t HANDOFF_ARM_MS = 900;
 constexpr uint32_t HANDOFF_MAX_GAP_MS = 10000;
-constexpr uint32_t HANDOFF_NOTICE_MS = 3000;
-constexpr uint32_t REACQUIRE_NOTICE_MS = 2500;
 constexpr uint32_t CANDIDATE_STALE_MS = 2500;
-constexpr int HANDOFF_SCORE_THRESHOLD = 78;
-constexpr uint8_t HANDOFF_HITS_REQUIRED = 3;
-constexpr uint8_t HANDOFF_MARGIN_REQUIRED = 10;
-constexpr size_t MEDIAN_WINDOW_SIZE = 7;
-constexpr size_t MAX_PAYLOAD_BYTES = 256;
-constexpr size_t MAX_SCAN_RESPONSE_BYTES = 128;
-constexpr size_t MAX_NAME_BYTES = 40;
+constexpr uint32_t NOTICE_MS = 2500;
+constexpr int HANDOFF_THRESHOLD = 78;
+constexpr uint8_t HANDOFF_HITS = 3;
+constexpr uint8_t HANDOFF_MARGIN = 10;
+constexpr size_t MAX_PAYLOAD = 256;
+constexpr size_t MAX_RESPONSE = 128;
+constexpr size_t MAX_NAME = 40;
 constexpr size_t MAX_CANDIDATES = 6;
-constexpr size_t MAX_ADDRESS_HISTORY = 8;
-constexpr size_t MAX_AD_LINES = 160;
+constexpr size_t MAX_HISTORY = 8;
+constexpr size_t MAX_LINES = 180;
 constexpr size_t MAX_GATT_LINES = 220;
-constexpr size_t MAX_MUTATION_EVENTS = 6;
 
 #if __has_include(<NimBLEExtAdvertising.h>)
 #define BLE_RECON_EXT_ADV 1
 #endif
 
-enum IdentitySource : uint8_t {
-    ID_ADDRESS = 0,
-    ID_ADVERTISED_NAME = 1,
-    ID_MANUFACTURER = 2,
-};
+enum IdentitySource : uint8_t { ID_MAC = 0, ID_NAME = 1, ID_MFG = 2 };
 
 struct BleObservation {
     char address[18]{};
     uint8_t addressType = 0;
-    char name[MAX_NAME_BYTES + 1]{};
+    char name[MAX_NAME + 1]{};
     int rssi = -127;
     uint8_t advType = 0;
     bool connectable = false;
     bool scannable = false;
-    uint8_t payload[MAX_PAYLOAD_BYTES]{};
+    uint8_t payload[MAX_PAYLOAD]{};
     uint16_t payloadLen = 0;
     uint16_t advLen = 0;
-    uint8_t scanResponse[MAX_SCAN_RESPONSE_BYTES]{};
-    uint16_t scanResponseLen = 0;
+    uint8_t response[MAX_RESPONSE]{};
+    uint16_t responseLen = 0;
     uint16_t companyId = 0;
     uint16_t appearance = 0;
     bool hasAppearance = false;
@@ -81,63 +73,63 @@ struct BleObservation {
 };
 
 struct FingerprintModel {
-    uint8_t baseline[MAX_PAYLOAD_BYTES]{};
-    uint16_t baselineLen = 0;
-    bool stable[MAX_PAYLOAD_BYTES]{};
-    uint8_t last[MAX_PAYLOAD_BYTES]{};
+    uint8_t baseline[MAX_PAYLOAD]{};
+    uint8_t last[MAX_PAYLOAD]{};
+    bool stable[MAX_PAYLOAD]{};
+    uint16_t len = 0;
     uint32_t observations = 0;
     bool valid = false;
 };
 
-struct HunterCandidate {
+struct Candidate {
     BleObservation obs;
     uint8_t score = 0;
     uint8_t hits = 0;
-    uint32_t firstSeenMs = 0;
-    uint32_t lastSeenMs = 0;
+    uint32_t firstSeen = 0;
+    uint32_t lastSeen = 0;
     bool valid = false;
 };
 
 struct HunterState {
     BleObservation target;
     FingerprintModel model;
-    float fastRssi = -127.0f;
-    float stableRssi = -127.0f;
-    float bestRssi = -127.0f;
-    float trend = 0.0f;
-    float jitter = 0.0f;
-    float packetsPerSecond = 0.0f;
-    float gapEmaMs = 0.0f;
+    Candidate candidates[MAX_CANDIDATES];
+    char currentName[MAX_NAME + 1]{};
+    char history[MAX_HISTORY][18]{};
+    uint8_t historyCount = 0;
+    uint8_t identitySource = ID_MAC;
+    float fastRssi = -127;
+    float stableRssi = -127;
+    float bestRssi = -127;
+    float trend = 0;
+    float jitter = 0;
+    float pps = 0;
+    float gapEma = 0;
     uint32_t samples = 0;
-    uint32_t lastSeenMs = 0;
-    uint32_t lastPacketMs = 0;
-    uint32_t rateWindowStartMs = 0;
-    uint32_t rateWindowPackets = 0;
-    uint32_t handoffNoticeUntilMs = 0;
-    uint32_t reacquireNoticeUntilMs = 0;
-    uint32_t lastOfflineMs = 0;
+    uint32_t lastSeen = 0;
+    uint32_t lastPacket = 0;
+    uint32_t rateStart = 0;
+    uint32_t ratePackets = 0;
+    uint32_t handoffNotice = 0;
+    uint32_t reacquireNotice = 0;
+    uint32_t offlineMs = 0;
     uint16_t handoffs = 0;
     uint16_t reacquisitions = 0;
     uint8_t lastHandoffScore = 0;
-    uint8_t identitySource = ID_ADDRESS;
-    char currentName[MAX_NAME_BYTES + 1]{};
-    char addressHistory[MAX_ADDRESS_HISTORY][18]{};
-    uint8_t addressHistoryCount = 0;
-    HunterCandidate candidates[MAX_CANDIDATES];
     bool initialized = false;
 };
 
 struct MutationModel {
-    uint8_t baseline[MAX_PAYLOAD_BYTES]{};
-    uint8_t last[MAX_PAYLOAD_BYTES]{};
-    uint8_t changeHits[MAX_PAYLOAD_BYTES]{};
-    uint8_t counterHits[MAX_PAYLOAD_BYTES]{};
-    bool volatileMask[MAX_PAYLOAD_BYTES]{};
-    uint16_t baselineLen = 0;
+    uint8_t baseline[MAX_PAYLOAD]{};
+    uint8_t last[MAX_PAYLOAD]{};
+    uint8_t changeHits[MAX_PAYLOAD]{};
+    uint8_t counterHits[MAX_PAYLOAD]{};
+    bool volatileMask[MAX_PAYLOAD]{};
+    uint16_t len = 0;
     uint32_t observations = 0;
     uint32_t changes = 0;
-    uint16_t lastChangedBytes = 0;
-    uint8_t lastDiff[MAX_PAYLOAD_BYTES]{};
+    uint16_t lastChanged = 0;
+    uint8_t lastDiff[MAX_PAYLOAD]{};
     uint16_t lastDiffLen = 0;
     bool valid = false;
 };
@@ -146,14 +138,14 @@ struct Fcf1Tracker {
     bool seen = false;
     uint8_t payload[32]{};
     uint8_t len = 0;
-    uint32_t firstSeenMs = 0;
-    uint32_t lastSeenMs = 0;
+    uint32_t firstSeen = 0;
+    uint32_t lastSeen = 0;
     uint32_t count = 0;
     uint32_t macChanges = 0;
     uint32_t payloadChanges = 0;
-    uint32_t correlatedChanges = 0;
-    uint32_t macOnlyChanges = 0;
-    uint32_t payloadOnlyChanges = 0;
+    uint32_t correlated = 0;
+    uint32_t macOnly = 0;
+    uint32_t payloadOnly = 0;
     char currentAddress[18]{};
     char previousAddress[18]{};
     uint8_t addressType = 0;
@@ -164,18 +156,16 @@ struct SnifferState {
     MutationModel mutation;
     Fcf1Tracker fcf1;
     uint32_t packets = 0;
-    uint32_t lastSeenMs = 0;
-    uint8_t scanResponse[MAX_SCAN_RESPONSE_BYTES]{};
-    uint16_t scanResponseLen = 0;
+    uint32_t lastSeen = 0;
+    uint32_t rateStart = 0;
+    uint32_t ratePackets = 0;
+    float pps = 0;
+    float gapEma = 0;
+    uint8_t response[MAX_RESPONSE]{};
+    uint16_t responseLen = 0;
     uint32_t activeBursts = 0;
     uint32_t activeReports = 0;
     uint32_t activeResponses = 0;
-    float gapEmaMs = 0.0f;
-    float packetsPerSecond = 0.0f;
-    uint32_t rateWindowStartMs = 0;
-    uint32_t rateWindowPackets = 0;
-    uint32_t mutationEvents[MAX_MUTATION_EVENTS]{};
-    uint8_t mutationEventCount = 0;
     bool activeComplete = false;
     bool initialized = false;
 };
@@ -189,36 +179,27 @@ struct GattResult {
     uint16_t descriptors = 0;
     uint16_t readable = 0;
     uint16_t writable = 0;
-    uint16_t notifiable = 0;
-    uint16_t indicatable = 0;
-    std::vector<String> serviceSummaries;
-    std::vector<String> technicalLines;
+    uint16_t notify = 0;
+    uint16_t indicate = 0;
+    std::vector<String> serviceLines;
+    std::vector<String> tree;
     bool truncated = false;
 };
 
 class MedianWindow {
 public:
-    void reset() {
-        _values.fill(-127);
-        _count = 0;
-        _index = 0;
-    }
-    void add(int value) {
-        _values[_index] = value;
-        _index = (_index + 1) % MEDIAN_WINDOW_SIZE;
-        if (_count < MEDIAN_WINDOW_SIZE) _count++;
-    }
+    void reset() { values.fill(-127); count = index = 0; }
+    void add(int value) { values[index] = value; index = (index + 1) % values.size(); if (count < values.size()) count++; }
     float median() const {
-        if (_count == 0) return -127.0f;
-        std::array<int, MEDIAN_WINDOW_SIZE> sorted = _values;
-        std::sort(sorted.begin(), sorted.begin() + _count);
-        if (_count & 1) return static_cast<float>(sorted[_count / 2]);
-        return (sorted[_count / 2 - 1] + sorted[_count / 2]) / 2.0f;
+        if (!count) return -127;
+        auto sorted = values;
+        std::sort(sorted.begin(), sorted.begin() + count);
+        return (count & 1) ? static_cast<float>(sorted[count / 2]) : (sorted[count / 2 - 1] + sorted[count / 2]) / 2.0f;
     }
 private:
-    std::array<int, MEDIAN_WINDOW_SIZE> _values{};
-    size_t _count = 0;
-    size_t _index = 0;
+    std::array<int, 7> values{};
+    size_t count = 0;
+    size_t index = 0;
 };
 
 portMUX_TYPE reconMux = portMUX_INITIALIZER_UNLOCKED;
@@ -226,1444 +207,317 @@ HunterState hunterState;
 SnifferState snifferState;
 MedianWindow medianWindow;
 char selectedAddress[18]{};
-bool activeBurstCapture = false;
-
-int clampInt(int value, int low, int high) {
-    return value < low ? low : (value > high ? high : value);
-}
-
-float clampFloat(float value, float low, float high) {
-    return value < low ? low : (value > high ? high : value);
-}
+bool activeBurst = false;
 
 uint32_t fnv1a(const uint8_t *data, size_t length, uint32_t seed = 2166136261UL) {
-    uint32_t hash = seed;
-    for (size_t i = 0; i < length; i++) {
-        hash ^= data[i];
-        hash *= 16777619UL;
-    }
-    return hash;
+    uint32_t h = seed;
+    for (size_t i = 0; i < length; i++) { h ^= data[i]; h *= 16777619UL; }
+    return h;
 }
+uint16_t le16(const uint8_t *p) { return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8); }
 
-uint16_t readLe16(const uint8_t *data) {
-    return static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8);
+String hexBytes(const uint8_t *data, size_t length, size_t maxBytes = 32, bool spaces = false) {
+    const size_t n = std::min(length, maxBytes); String out; out.reserve(n * (spaces ? 3 : 2) + 3); char b[4];
+    for (size_t i = 0; i < n; i++) { std::snprintf(b, sizeof(b), spaces ? "%02X " : "%02X", data[i]); out += b; }
+    if (spaces && !out.isEmpty()) out.remove(out.length() - 1); if (length > n) out += ".."; return out;
 }
-
-void copyAddress(char destination[18], const std::string &source) {
-    std::memset(destination, 0, 18);
-    std::strncpy(destination, source.c_str(), 17);
-}
-
-void copyName(char destination[MAX_NAME_BYTES + 1], const String &source) {
-    std::memset(destination, 0, MAX_NAME_BYTES + 1);
-    std::strncpy(destination, source.c_str(), MAX_NAME_BYTES);
-}
-
 String cleanText(const uint8_t *data, size_t length) {
-    if (!data || !length) return String();
-    const size_t count = std::min(length, MAX_NAME_BYTES);
-    String out;
-    out.reserve(count);
-    for (size_t i = 0; i < count; i++) {
-        if (data[i] == 0) break;
-        out += (data[i] >= 0x20 && data[i] < 0x7F) ? static_cast<char>(data[i]) : '.';
-    }
-    out.trim();
-    return out;
+    const size_t n = std::min(length, MAX_NAME); String out; out.reserve(n);
+    for (size_t i = 0; i < n; i++) { if (data[i] == 0) break; out += (data[i] >= 0x20 && data[i] < 0x7F) ? static_cast<char>(data[i]) : '.'; }
+    out.trim(); return out;
 }
+String cleanText(const std::string &s) { return cleanText(reinterpret_cast<const uint8_t *>(s.data()), s.size()); }
+void copyAddress(char dst[18], const std::string &src) { std::memset(dst, 0, 18); std::strncpy(dst, src.c_str(), 17); }
+void copyName(char dst[MAX_NAME + 1], const String &src) { std::memset(dst, 0, MAX_NAME + 1); std::strncpy(dst, src.c_str(), MAX_NAME); }
 
-String cleanText(const std::string &value) {
-    return cleanText(reinterpret_cast<const uint8_t *>(value.data()), value.size());
+String addressTypeName(uint8_t type, const char *address) {
+    if (!address || !address[0]) return "UNKNOWN";
+    NimBLEAddress a(std::string(address), type);
+    if (a.isPublic()) return "PUBLIC"; if (a.isRpa()) return "RPA"; if (a.isNrpa()) return "NRPA"; if (a.isStatic()) return "STATIC"; return "RANDOM";
 }
-
-String hexBytes(const uint8_t *data, size_t length, size_t maxBytes = 32, bool spaced = false) {
-    String out;
-    const size_t count = std::min(length, maxBytes);
-    out.reserve(count * (spaced ? 3 : 2) + 3);
-    char buf[4];
-    for (size_t i = 0; i < count; i++) {
-        std::snprintf(buf, sizeof(buf), spaced ? "%02X " : "%02X", data[i]);
-        out += buf;
-    }
-    if (spaced && !out.isEmpty()) out.remove(out.length() - 1);
-    if (length > count) out += "..";
-    return out;
-}
-
-String addressTypeName(const NimBLEAddress &address) {
-    if (address.isPublic()) return "PUBLIC";
-    if (address.isRpa()) return "RPA";
-    if (address.isNrpa()) return "NRPA";
-    if (address.isStatic()) return "STATIC";
-    return "RANDOM";
-}
-
-String addressTypeName(const BleObservation &obs) {
-    NimBLEAddress address(std::string(obs.address), obs.addressType);
-    return addressTypeName(address);
-}
+String addressTypeName(const BleObservation &o) { return addressTypeName(o.addressType, o.address); }
 
 const char *companyName(uint16_t id) {
     switch (id) {
-        case 0x0006: return "Microsoft";
-        case 0x004C: return "Apple";
-        case 0x0057: return "Harman";
-        case 0x0075: return "Samsung";
-        case 0x0087: return "Garmin";
-        case 0x009E: return "Bose";
-        case 0x00E0: return "Google";
-        case 0x012D: return "Sony";
-        case 0x0131: return "Cypress";
-        case 0x0157: return "Xiaomi";
-        case 0x0499: return "Ruuvi";
-        default: return nullptr;
+        case 0x0006: return "Microsoft"; case 0x004C: return "Apple"; case 0x0057: return "Harman"; case 0x0075: return "Samsung";
+        case 0x0087: return "Garmin"; case 0x009E: return "Bose"; case 0x00E0: return "Google"; case 0x012D: return "Sony";
+        case 0x0131: return "Cypress"; case 0x0157: return "Xiaomi"; case 0x0499: return "Ruuvi"; default: return nullptr;
     }
 }
-
-const char *serviceName(uint16_t uuid) {
-    switch (uuid) {
-        case 0x1800: return "Generic Access";
-        case 0x1801: return "Generic Attribute";
-        case 0x180A: return "Device Information";
-        case 0x180D: return "Heart Rate";
-        case 0x180F: return "Battery";
-        case 0x1812: return "Human Interface Device";
-        case 0x1816: return "Cycling Speed/Cadence";
-        case 0x181A: return "Environmental Sensing";
-        case 0x181D: return "Weight Scale";
-        case 0xFE2C: return "Google Fast Pair";
-        case 0xFEAA: return "Eddystone";
-        case 0xFD6F: return "Exposure Notification";
-        case 0xFCF1: return "Google Service (FCF1)";
-        default: return nullptr;
+const char *serviceName(uint16_t id) {
+    switch (id) {
+        case 0x1800: return "Generic Access"; case 0x1801: return "Generic Attribute"; case 0x180A: return "Device Information";
+        case 0x180D: return "Heart Rate"; case 0x180F: return "Battery"; case 0x1812: return "HID"; case 0x1816: return "Cycling Speed/Cadence";
+        case 0x181A: return "Environmental Sensing"; case 0x181D: return "Weight Scale"; case 0xFE2C: return "Google Fast Pair";
+        case 0xFEAA: return "Eddystone"; case 0xFD6F: return "Exposure Notification"; case 0xFCF1: return "Google Service (FCF1)"; default: return nullptr;
     }
 }
-
-const char *characteristicName(uint16_t uuid) {
-    switch (uuid) {
-        case 0x2A00: return "Device Name";
-        case 0x2A01: return "Appearance";
-        case 0x2A19: return "Battery Level";
-        case 0x2A24: return "Model Number";
-        case 0x2A25: return "Serial Number";
-        case 0x2A26: return "Firmware Revision";
-        case 0x2A27: return "Hardware Revision";
-        case 0x2A29: return "Manufacturer Name";
-        case 0x2A37: return "Heart Rate Measurement";
-        case 0x2A4D: return "HID Report";
-        case 0x2A4E: return "HID Protocol Mode";
-        default: return nullptr;
+const char *characteristicName(uint16_t id) {
+    switch (id) {
+        case 0x2A00: return "Device Name"; case 0x2A01: return "Appearance"; case 0x2A19: return "Battery Level";
+        case 0x2A24: return "Model Number"; case 0x2A25: return "Serial Number"; case 0x2A26: return "Firmware Revision";
+        case 0x2A27: return "Hardware Revision"; case 0x2A29: return "Manufacturer Name"; case 0x2A37: return "Heart Rate Measurement";
+        case 0x2A4D: return "HID Report"; default: return nullptr;
     }
 }
-
-const char *descriptorName(uint16_t uuid) {
-    switch (uuid) {
-        case 0x2900: return "Extended Properties";
-        case 0x2901: return "User Description";
-        case 0x2902: return "Client Configuration";
-        case 0x2904: return "Presentation Format";
-        default: return nullptr;
+String uuid16Label(uint16_t id) { String s = "0x" + String(id, HEX); s.toUpperCase(); if (const char *n = serviceName(id)) s += " " + String(n); return s; }
+String appearanceName(uint16_t a) {
+    switch (a >> 6) {
+        case 1: return "Phone"; case 2: return "Computer"; case 3: return "Watch"; case 4: return "Clock"; case 5: return "Display";
+        case 6: return "Remote"; case 8: return "Tag"; case 9: return "Keyring"; case 10: return "Media player"; case 11: return "Barcode scanner";
+        case 12: return "Thermometer"; case 13: return "Heart-rate sensor"; case 15: return "HID"; case 18: return "Cycling sensor";
+        case 49: return "Pulse oximeter"; case 50: return "Weight scale"; default: return "Unknown";
     }
 }
-
-String appearanceName(uint16_t appearance) {
-    switch (appearance >> 6) {
-        case 1: return "Phone";
-        case 2: return "Computer";
-        case 3: return "Watch";
-        case 4: return "Clock";
-        case 5: return "Display";
-        case 6: return "Remote control";
-        case 7: return "Eye glasses";
-        case 8: return "Tag";
-        case 9: return "Keyring";
-        case 10: return "Media player";
-        case 11: return "Barcode scanner";
-        case 12: return "Thermometer";
-        case 13: return "Heart-rate sensor";
-        case 15: return "HID device";
-        case 17: return "Running/walking sensor";
-        case 18: return "Cycling sensor";
-        case 49: return "Pulse oximeter";
-        case 50: return "Weight scale";
-        default: return "Unknown class";
+String adTypeName(uint8_t t) {
+    switch (t) {
+        case 0x01: return "Flags"; case 0x02: return "16-bit UUIDs (some)"; case 0x03: return "16-bit UUIDs"; case 0x04: return "32-bit UUIDs (some)";
+        case 0x05: return "32-bit UUIDs"; case 0x06: return "128-bit UUIDs (some)"; case 0x07: return "128-bit UUIDs"; case 0x08: return "Short name";
+        case 0x09: return "Complete name"; case 0x0A: return "TX power"; case 0x12: return "Connection interval"; case 0x16: return "16-bit service data";
+        case 0x19: return "Appearance"; case 0x20: return "32-bit service data"; case 0x21: return "128-bit service data"; case 0x24: return "URI";
+        case 0xFF: return "Manufacturer data"; default: return "Unknown field";
     }
-}
-
-String adTypeName(uint8_t type) {
-    switch (type) {
-        case 0x01: return "Flags";
-        case 0x02: return "16-bit UUIDs (some)";
-        case 0x03: return "16-bit UUIDs";
-        case 0x04: return "32-bit UUIDs (some)";
-        case 0x05: return "32-bit UUIDs";
-        case 0x06: return "128-bit UUIDs (some)";
-        case 0x07: return "128-bit UUIDs";
-        case 0x08: return "Short name";
-        case 0x09: return "Complete name";
-        case 0x0A: return "TX power";
-        case 0x12: return "Connection interval";
-        case 0x16: return "16-bit service data";
-        case 0x19: return "Appearance";
-        case 0x20: return "32-bit service data";
-        case 0x21: return "128-bit service data";
-        case 0x24: return "URI";
-        case 0xFF: return "Manufacturer data";
-        default: return "Unknown field";
-    }
-}
-
-String uuid16Label(uint16_t uuid) {
-    const char *name = serviceName(uuid);
-    String out = "0x" + String(uuid, HEX);
-    out.toUpperCase();
-    if (name) out += " " + String(name);
-    return out;
 }
 
 void appendWrapped(std::vector<String> &lines, const String &text, size_t width = 28) {
-    String remaining = text;
-    remaining.trim();
-    while (remaining.length() > width) {
-        int split = static_cast<int>(width);
-        while (split > 8 && remaining.charAt(split) != ' ') split--;
-        if (split <= 8) split = static_cast<int>(width);
-        lines.push_back(remaining.substring(0, split));
-        remaining = remaining.substring(split);
-        remaining.trim();
-        if (lines.size() >= MAX_AD_LINES) return;
-    }
-    if (!remaining.isEmpty() && lines.size() < MAX_AD_LINES) lines.push_back(remaining);
+    String s = text; s.trim();
+    while (s.length() > width && lines.size() < MAX_LINES) { int split = static_cast<int>(width); while (split > 8 && s.charAt(split) != ' ') split--; if (split <= 8) split = width; lines.push_back(s.substring(0, split)); s = s.substring(split); s.trim(); }
+    if (!s.isEmpty() && lines.size() < MAX_LINES) lines.push_back(s);
 }
 
-bool parseAdFields(const uint8_t *payload, size_t length, std::vector<String> *lines, BleObservation *obs) {
-    if (!payload && length) return false;
-    size_t offset = 0;
-    bool valid = true;
-    while (offset < length) {
-        const uint8_t fieldLength = payload[offset];
-        if (fieldLength == 0) break;
-        const size_t end = offset + static_cast<size_t>(fieldLength) + 1;
-        if (fieldLength < 1 || end > length) {
-            valid = false;
-            if (lines) appendWrapped(*lines, "MALFORMED field at byte " + String(offset));
-            break;
-        }
-        const uint8_t type = payload[offset + 1];
-        const uint8_t *data = payload + offset + 2;
-        const size_t dataLen = fieldLength - 1;
-
+void parseAdFields(const uint8_t *payload, size_t length, std::vector<String> *lines, BleObservation *obs) {
+    size_t off = 0;
+    while (off < length) {
+        const uint8_t fl = payload[off]; if (!fl) break; const size_t end = off + static_cast<size_t>(fl) + 1;
+        if (fl < 1 || end > length) { if (lines) appendWrapped(*lines, "MALFORMED field at byte " + String(off)); break; }
+        const uint8_t type = payload[off + 1]; const uint8_t *data = payload + off + 2; const size_t dl = fl - 1;
         if (obs) {
-            if ((type == 0x08 || type == 0x09) && dataLen && obs->name[0] == '\0')
-                copyName(obs->name, cleanText(data, dataLen));
-            if (type == 0x19 && dataLen >= 2) {
-                obs->appearance = readLe16(data);
-                obs->hasAppearance = true;
-            }
-            if (type == 0x0A && dataLen >= 1) {
-                obs->txPower = static_cast<int8_t>(data[0]);
-                obs->hasTxPower = true;
-            }
-            if (type == 0xFF && dataLen >= 2 && obs->companyId == 0)
-                obs->companyId = readLe16(data);
+            if ((type == 0x08 || type == 0x09) && dl && !obs->name[0]) copyName(obs->name, cleanText(data, dl));
+            if (type == 0x19 && dl >= 2) { obs->appearance = le16(data); obs->hasAppearance = true; }
+            if (type == 0x0A && dl) { obs->txPower = static_cast<int8_t>(data[0]); obs->hasTxPower = true; }
+            if (type == 0xFF && dl >= 2 && !obs->companyId) obs->companyId = le16(data);
         }
-
         if (lines) {
             appendWrapped(*lines, "AD 0x" + String(type, HEX) + " " + String(adTypeName(type)));
             switch (type) {
-                case 0x01:
-                    if (dataLen) {
-                        String flags;
-                        if (data[0] & 0x01) flags += "limited ";
-                        if (data[0] & 0x02) flags += "general ";
-                        if (data[0] & 0x04) flags += "LE-only ";
-                        appendWrapped(*lines, "  Flags: " + (flags.isEmpty() ? String("none") : flags));
-                    }
-                    break;
-                case 0x02:
-                case 0x03:
-                    for (size_t i = 0; i + 1 < dataLen; i += 2)
-                        appendWrapped(*lines, "  UUID " + uuid16Label(readLe16(data + i)));
-                    break;
-                case 0x06:
-                case 0x07:
-                    appendWrapped(*lines, "  UUID128 bytes: " + hexBytes(data, dataLen, 32, true));
-                    break;
-                case 0x08:
-                case 0x09:
-                    appendWrapped(*lines, "  Name: " + cleanText(data, dataLen));
-                    break;
-                case 0x0A:
-                    if (dataLen) appendWrapped(*lines, "  TX power: " + String(static_cast<int8_t>(data[0])) + " dBm");
-                    break;
-                case 0x12:
-                    if (dataLen >= 4) appendWrapped(*lines, "  Conn: " + String(readLe16(data) * 1.25f, 1) + "-" +
-                                                       String(readLe16(data + 2) * 1.25f, 1) + " ms");
-                    break;
+                case 0x02: case 0x03: for (size_t i = 0; i + 1 < dl; i += 2) appendWrapped(*lines, "  UUID " + uuid16Label(le16(data + i))); break;
+                case 0x06: case 0x07: appendWrapped(*lines, "  UUID128: " + hexBytes(data, dl, 32, true)); break;
+                case 0x08: case 0x09: appendWrapped(*lines, "  Name: " + cleanText(data, dl)); break;
+                case 0x0A: if (dl) appendWrapped(*lines, "  TX power: " + String(static_cast<int8_t>(data[0])) + " dBm"); break;
+                case 0x12: if (dl >= 4) appendWrapped(*lines, "  Conn: " + String(le16(data) * 1.25f, 1) + "-" + String(le16(data + 2) * 1.25f, 1) + " ms"); break;
                 case 0x16:
-                    if (dataLen >= 2) {
-                        const uint16_t uuid = readLe16(data);
-                        appendWrapped(*lines, "  Service: " + uuid16Label(uuid));
-                        if (uuid == 0xFCF1)
-                            appendWrapped(*lines, "  Google Service (FCF1) payload: " + hexBytes(data + 2, dataLen - 2, 32, true));
-                        else if (uuid == 0xFEAA && dataLen > 2)
-                            appendWrapped(*lines, "  Eddystone frame: 0x" + String(data[2], HEX));
-                        else if (dataLen > 2)
-                            appendWrapped(*lines, "  Data: " + hexBytes(data + 2, dataLen - 2, 32, true));
-                    }
+                    if (dl >= 2) { const uint16_t u = le16(data); appendWrapped(*lines, "  Service: " + uuid16Label(u)); if (u == 0xFCF1) appendWrapped(*lines, "  FCF1 payload: " + hexBytes(data + 2, dl - 2, 32, true)); else if (dl > 2) appendWrapped(*lines, "  Data: " + hexBytes(data + 2, dl - 2, 32, true)); }
                     break;
-                case 0x19:
-                    if (dataLen >= 2) appendWrapped(*lines, "  Appearance: " + appearanceName(readLe16(data)));
-                    break;
-                case 0x20:
-                    if (dataLen >= 4) appendWrapped(*lines, "  32-bit service UUID: " + hexBytes(data, 4, 4, true));
-                    break;
-                case 0x21:
-                    if (dataLen >= 16) appendWrapped(*lines, "  128-bit service UUID: " + hexBytes(data, 16, 16, true));
-                    break;
-                case 0x24:
-                    appendWrapped(*lines, "  URI: " + cleanText(data, dataLen));
-                    break;
+                case 0x19: if (dl >= 2) appendWrapped(*lines, "  Appearance: " + appearanceName(le16(data))); break;
+                case 0x20: if (dl >= 4) appendWrapped(*lines, "  Service UUID32: " + hexBytes(data, 4, 4, true)); break;
+                case 0x21: if (dl >= 16) appendWrapped(*lines, "  Service UUID128: " + hexBytes(data, 16, 16, true)); break;
+                case 0x24: appendWrapped(*lines, "  URI/data: " + hexBytes(data, dl, 32, true)); break;
                 case 0xFF:
-                    if (dataLen >= 2) {
-                        const uint16_t company = readLe16(data);
-                        const char *name = companyName(company);
-                        appendWrapped(*lines, "  Company: " + String(name ? name : "Unlisted") +
-                                                       " (0x" + String(company, HEX) + ")");
-                        if (dataLen > 2) appendWrapped(*lines, "  Data: " + hexBytes(data + 2, dataLen - 2, 32, true));
-                    }
-                    break;
-                default:
-                    appendWrapped(*lines, "  Data: " + hexBytes(data, dataLen, 32, true));
-                    break;
+                    if (dl >= 2) appendWrapped(*lines, "  Company: " + String(companyName(le16(data)) ? companyName(le16(data)) : "Unlisted") + " (0x" + String(le16(data), HEX) + ")");
+                    if (dl > 2) appendWrapped(*lines, "  Data: " + hexBytes(data + 2, dl - 2, 32, true)); break;
+                default: appendWrapped(*lines, "  Data: " + hexBytes(data, dl, 32, true)); break;
             }
         }
-        offset = end;
-        if (lines && lines->size() >= MAX_AD_LINES) break;
+        off = end;
     }
-    return valid;
 }
 
 uint32_t shapeHash(const uint8_t *payload, size_t length) {
-    uint32_t hash = 2166136261UL;
-    size_t offset = 0;
-    while (offset < length) {
-        const uint8_t fieldLength = payload[offset];
-        if (fieldLength == 0) break;
-        const size_t end = offset + static_cast<size_t>(fieldLength) + 1;
-        if (fieldLength < 1 || end > length) break;
-        const uint8_t type = payload[offset + 1];
-        hash = fnv1a(&fieldLength, 1, hash);
-        hash = fnv1a(&type, 1, hash);
-        if (type == 0xFF && fieldLength >= 3) {
-            const size_t stable = std::min<size_t>(4, fieldLength - 1);
-            hash = fnv1a(payload + offset + 2, stable, hash);
-        } else if ((type == 0x02 || type == 0x03 || type == 0x06 || type == 0x07) && fieldLength > 1) {
-            hash = fnv1a(payload + offset + 2, fieldLength - 1, hash);
-        } else if ((type == 0x16 || type == 0x20 || type == 0x21) && fieldLength > 1) {
-            const size_t stable = std::min<size_t>(type == 0x16 ? 2 : (type == 0x20 ? 4 : 16), fieldLength - 1);
-            hash = fnv1a(payload + offset + 2, stable, hash);
-        }
-        offset = end;
+    uint32_t h = 2166136261UL; size_t off = 0;
+    while (off < length) {
+        const uint8_t fl = payload[off]; if (!fl) break; const size_t end = off + static_cast<size_t>(fl) + 1; if (fl < 1 || end > length) break;
+        const uint8_t type = payload[off + 1]; h = fnv1a(&fl, 1, h); h = fnv1a(&type, 1, h);
+        if (type == 0xFF && fl >= 3) h = fnv1a(payload + off + 2, std::min<size_t>(4, fl - 1), h);
+        else if ((type >= 0x02 && type <= 0x07) || type == 0x16 || type == 0x20 || type == 0x21) { const size_t n = type == 0x16 ? std::min<size_t>(2, fl - 1) : std::min<size_t>(type == 0x20 ? 4 : 16, fl - 1); h = fnv1a(payload + off + 2, n, h); }
+        off = end;
     }
-    return hash;
+    return h;
 }
 
-void fillObservation(const NimBLEAdvertisedDevice *device, BleObservation &obs) {
-    obs = BleObservation{};
-    if (!device) return;
-    copyAddress(obs.address, device->getAddress().toString());
-    obs.addressType = device->getAddressType();
-    obs.rssi = device->getRSSI();
-    obs.advType = device->getAdvType();
-    obs.connectable = device->isConnectable();
-    obs.scannable = device->isScannable();
-
-    const std::vector<uint8_t> &payload = device->getPayload();
-    const size_t copyLen = std::min(payload.size(), MAX_PAYLOAD_BYTES);
-    obs.payloadLen = static_cast<uint16_t>(copyLen);
-    obs.advLen = static_cast<uint16_t>(std::min<size_t>(device->getAdvLength(), copyLen));
-    if (copyLen) std::memcpy(obs.payload, payload.data(), copyLen);
-    obs.fullHash = copyLen ? fnv1a(payload.data(), payload.size()) : 0;
-    obs.shapeHash = copyLen ? shapeHash(payload.data(), copyLen) : 0;
-
-    String name = cleanText(device->getName());
-    if (!name.isEmpty()) copyName(obs.name, name);
-    parseAdFields(obs.payload, obs.payloadLen, nullptr, &obs);
-
-    if (device->haveManufacturerData()) {
-        const std::string mfg = device->getManufacturerData();
-        if (mfg.size() >= 2) obs.companyId = readLe16(reinterpret_cast<const uint8_t *>(mfg.data()));
-    }
-
-    uint32_t service = 2166136261UL;
-    for (uint8_t i = 0; i < device->getServiceUUIDCount(); i++)
-        service = fnv1a(reinterpret_cast<const uint8_t *>(device->getServiceUUID(i).toString().data()),
-                        device->getServiceUUID(i).toString().size(), service);
+void fillObservation(const NimBLEAdvertisedDevice *device, BleObservation &o) {
+    o = BleObservation{}; if (!device) return; copyAddress(o.address, device->getAddress().toString()); o.addressType = device->getAddressType(); o.rssi = device->getRSSI(); o.advType = device->getAdvType(); o.connectable = device->isConnectable(); o.scannable = device->isScannable();
+    const std::vector<uint8_t> &p = device->getPayload(); const size_t n = std::min(p.size(), MAX_PAYLOAD); o.payloadLen = n; o.advLen = std::min<size_t>(device->getAdvLength(), n); if (n) std::memcpy(o.payload, p.data(), n); if (!p.empty()) o.fullHash = fnv1a(p.data(), p.size()); if (n) o.shapeHash = shapeHash(o.payload, n);
+    String name = cleanText(device->getName()); if (!name.isEmpty()) copyName(o.name, name); parseAdFields(o.payload, o.payloadLen, nullptr, &o);
+    if (device->haveManufacturerData()) { const std::string m = device->getManufacturerData(); if (m.size() >= 2) o.companyId = le16(reinterpret_cast<const uint8_t *>(m.data())); }
+    uint32_t sh = 2166136261UL;
+    for (uint8_t i = 0; i < device->getServiceUUIDCount(); i++) { const std::string u = device->getServiceUUID(i).toString(); sh = fnv1a(reinterpret_cast<const uint8_t *>(u.data()), u.size(), sh); }
     for (uint8_t i = 0; i < device->getServiceDataCount(); i++) {
-        const std::string uuid = device->getServiceDataUUID(i).toString();
-        const std::string data = device->getServiceData(i);
-        service = fnv1a(reinterpret_cast<const uint8_t *>(uuid.data()), uuid.size(), service);
-        const uint16_t len = static_cast<uint16_t>(std::min<size_t>(data.size(), 0xFFFF));
-        service = fnv1a(reinterpret_cast<const uint8_t *>(&len), sizeof(len), service);
-        String uuidText(uuid.c_str());
-        uuidText.toLowerCase();
-        if (uuidText == "fcf1" || uuidText == "0000fcf1-0000-1000-8000-00805f9b34fb") {
-            obs.hasFcf1 = true;
-            obs.fcf1Len = static_cast<uint8_t>(std::min<size_t>(data.size(), sizeof(obs.fcf1)));
-            if (obs.fcf1Len) std::memcpy(obs.fcf1, data.data(), obs.fcf1Len);
-        }
+        const std::string u = device->getServiceDataUUID(i).toString(); const std::string d = device->getServiceData(i); sh = fnv1a(reinterpret_cast<const uint8_t *>(u.data()), u.size(), sh); const uint16_t dl = static_cast<uint16_t>(std::min<size_t>(d.size(), 0xFFFF)); sh = fnv1a(reinterpret_cast<const uint8_t *>(&dl), sizeof(dl), sh);
+        String us(u.c_str()); us.toLowerCase(); if (us == "fcf1" || us == "0000fcf1-0000-1000-8000-00805f9b34fb") { o.hasFcf1 = true; o.fcf1Len = std::min<size_t>(d.size(), sizeof(o.fcf1)); if (o.fcf1Len) std::memcpy(o.fcf1, d.data(), o.fcf1Len); }
     }
-    obs.serviceHash = service;
-    obs.hasTxPower = device->haveTXPower();
-    obs.txPower = obs.hasTxPower ? device->getTXPower() : 0;
-    obs.hasAppearance = device->haveAppearance();
-    obs.appearance = obs.hasAppearance ? device->getAppearance() : 0;
+    o.serviceHash = sh; o.hasTxPower = device->haveTXPower(); o.txPower = o.hasTxPower ? device->getTXPower() : 0; o.hasAppearance = device->haveAppearance(); o.appearance = o.hasAppearance ? device->getAppearance() : 0;
 #ifdef BLE_RECON_EXT_ADV
-    obs.legacy = device->isLegacyAdvertisement();
-    if (!obs.legacy) {
-        obs.sid = device->getSetId();
-        obs.primaryPhy = device->getPrimaryPhy();
-        obs.secondaryPhy = device->getSecondaryPhy();
-        obs.periodicInterval = device->getPeriodicInterval();
-        obs.dataStatus = device->getDataStatus();
-    }
+    o.legacy = device->isLegacyAdvertisement(); if (!o.legacy) { o.sid = device->getSetId(); o.primaryPhy = device->getPrimaryPhy(); o.secondaryPhy = device->getSecondaryPhy(); o.periodicInterval = device->getPeriodicInterval(); o.dataStatus = device->getDataStatus(); }
 #endif
 }
 
-String resolvedIdentity(const BleObservation &obs, uint8_t &source) {
-    if (obs.name[0]) {
-        source = ID_ADVERTISED_NAME;
-        return String(obs.name);
-    }
-    if (const char *company = companyName(obs.companyId)) {
-        source = ID_MANUFACTURER;
-        return String(company) + " device";
-    }
-    source = ID_ADDRESS;
-    return String();
+String resolvedIdentity(const BleObservation &o, uint8_t &source) { if (o.name[0]) { source = ID_NAME; return String(o.name); } if (const char *m = companyName(o.companyId)) { source = ID_MFG; return String(m) + " device"; } source = ID_MAC; return String(); }
+
+void updateFingerprint(FingerprintModel &m, const BleObservation &o) {
+    if (!o.payloadLen) return;
+    if (!m.valid) { std::memcpy(m.baseline, o.payload, o.payloadLen); std::memcpy(m.last, o.payload, o.payloadLen); for (size_t i = 0; i < o.payloadLen; i++) m.stable[i] = true; m.len = o.payloadLen; m.observations = 1; m.valid = true; return; }
+    const size_t n = std::min<size_t>(m.len, o.payloadLen); for (size_t i = 0; i < n; i++) { if (m.last[i] != o.payload[i]) m.stable[i] = false; m.last[i] = o.payload[i]; }
+    if (o.payloadLen > m.len) { for (size_t i = m.len; i < o.payloadLen; i++) { m.baseline[i] = o.payload[i]; m.last[i] = o.payload[i]; m.stable[i] = false; } m.len = o.payloadLen; }
+    m.observations++;
 }
-
-void updateFingerprintModel(FingerprintModel &model, const BleObservation &obs) {
-    if (!obs.payloadLen) return;
-    if (!model.valid) {
-        std::memcpy(model.baseline, obs.payload, obs.payloadLen);
-        std::memcpy(model.last, obs.payload, obs.payloadLen);
-        for (size_t i = 0; i < obs.payloadLen; i++) model.stable[i] = true;
-        model.baselineLen = obs.payloadLen;
-        model.observations = 1;
-        model.valid = true;
-        return;
-    }
-    const size_t common = std::min<size_t>(model.baselineLen, obs.payloadLen);
-    for (size_t i = 0; i < common; i++) {
-        if (model.last[i] != obs.payload[i]) model.stable[i] = false;
-        model.last[i] = obs.payload[i];
-    }
-    if (obs.payloadLen > model.baselineLen) {
-        const size_t newEnd = std::min<size_t>(obs.payloadLen, MAX_PAYLOAD_BYTES);
-        for (size_t i = model.baselineLen; i < newEnd; i++) {
-            model.baseline[i] = obs.payload[i];
-            model.last[i] = obs.payload[i];
-            model.stable[i] = false;
-        }
-        model.baselineLen = static_cast<uint16_t>(newEnd);
-    }
-    model.observations++;
+int maskedSimilarity(const FingerprintModel &m, const BleObservation &o) {
+    if (!m.valid || !o.payloadLen) return 0; const size_t n = std::min<size_t>(m.len, o.payloadLen); size_t stable = 0, equal = 0, rawEqual = 0;
+    for (size_t i = 0; i < n; i++) { if (m.baseline[i] == o.payload[i]) rawEqual++; if (m.stable[i]) { stable++; if (m.baseline[i] == o.payload[i]) equal++; } }
+    return stable >= 4 ? static_cast<int>(equal * 100 / stable) : (n ? static_cast<int>(rawEqual * 100 / n) : 0);
 }
-
-int maskedPayloadSimilarity(const FingerprintModel &model, const BleObservation &obs) {
-    if (!model.valid || !obs.payloadLen) return 0;
-    const size_t common = std::min<size_t>(model.baselineLen, obs.payloadLen);
-    size_t stableCount = 0;
-    size_t equal = 0;
-    for (size_t i = 0; i < common; i++) {
-        if (!model.stable[i]) continue;
-        stableCount++;
-        if (model.baseline[i] == obs.payload[i]) equal++;
-    }
-    if (stableCount >= 4) return static_cast<int>((equal * 100) / stableCount);
-    size_t rawEqual = 0;
-    for (size_t i = 0; i < common; i++) if (model.baseline[i] == obs.payload[i]) rawEqual++;
-    return common ? static_cast<int>((rawEqual * 100) / common) : 0;
+int nameScore(const char *a, const char *b) {
+    if (!a || !b || !a[0] || !b[0]) return 0; String x(a), y(b); x.toLowerCase(); y.toLowerCase(); if (x == y) return 25; const size_t n = std::min(x.length(), y.length()); size_t same = 0; while (same < n && x.charAt(same) == y.charAt(same)) same++; return same >= 4 && same * 100 / n >= 70 ? 14 : 0;
 }
-
-int nameSimilarity(const char *a, const char *b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    String sa(a), sb(b);
-    sa.toLowerCase();
-    sb.toLowerCase();
-    if (sa == sb) return 25;
-    const size_t common = std::min(sa.length(), sb.length());
-    size_t same = 0;
-    while (same < common && sa.charAt(same) == sb.charAt(same)) same++;
-    if (same >= 4 && same * 100 / common >= 70) return 14;
-    return 0;
+int scoreCandidate(const HunterState &s, const BleObservation &o, uint32_t gap) {
+    int identity = nameScore(s.currentName, o.name); if (s.target.companyId && s.target.companyId == o.companyId) identity += 10; if (s.target.hasAppearance && o.hasAppearance && s.target.appearance == o.appearance) identity += 5; identity = std::min(identity, 30);
+    int structure = 0; if (s.target.serviceHash && s.target.serviceHash == o.serviceHash) structure += 14; if (s.target.shapeHash && s.target.shapeHash == o.shapeHash) structure += 6; if (s.target.advType == o.advType) structure += 2; if (s.target.addressType == o.addressType) structure += 2; if (s.target.payloadLen && s.target.payloadLen == o.payloadLen) structure += 2; structure = std::min(structure, 25);
+    const int sim = maskedSimilarity(s.model, o); const int payload = sim >= 95 ? 25 : sim >= 85 ? 22 : sim >= 70 ? 17 : sim >= 55 ? 10 : sim >= 40 ? 5 : 0;
+    const int rd = std::abs(static_cast<int>(roundf(s.stableRssi)) - o.rssi); const int radio = rd <= 5 ? 15 : rd <= 10 ? 11 : rd <= 18 ? 6 : rd <= 25 ? 2 : 0; const int timing = gap <= 2000 ? 5 : gap <= 5000 ? 3 : 1;
+    return std::min(100, identity + structure + payload + radio + timing);
 }
-
-int handoffScore(const HunterState &state, const BleObservation &candidate, uint32_t gapMs) {
-    int identity = 0;
-    identity += nameSimilarity(state.currentName, candidate.name);
-    if (state.target.companyId && state.target.companyId == candidate.companyId) identity += 10;
-    if (state.target.hasAppearance && candidate.hasAppearance && state.target.appearance == candidate.appearance) identity += 5;
-    identity = clampInt(identity, 0, 30);
-
-    int structure = 0;
-    if (state.target.serviceHash && state.target.serviceHash == candidate.serviceHash) structure += 14;
-    if (state.target.shapeHash && state.target.shapeHash == candidate.shapeHash) structure += 6;
-    if (state.target.advType == candidate.advType) structure += 2;
-    if (state.target.addressType == candidate.addressType) structure += 2;
-    if (state.target.payloadLen && state.target.payloadLen == candidate.payloadLen) structure += 2;
-    structure = clampInt(structure, 0, 25);
-
-    int payload = 0;
-    const int similarity = maskedPayloadSimilarity(state.model, candidate);
-    if (similarity >= 95) payload = 25;
-    else if (similarity >= 85) payload = 22;
-    else if (similarity >= 70) payload = 17;
-    else if (similarity >= 55) payload = 10;
-    else if (similarity >= 40) payload = 5;
-    payload = clampInt(payload, 0, 25);
-
-    int radio = 0;
-    const int rssiDiff = std::abs(static_cast<int>(roundf(state.stableRssi)) - candidate.rssi);
-    if (rssiDiff <= 5) radio = 15;
-    else if (rssiDiff <= 10) radio = 11;
-    else if (rssiDiff <= 18) radio = 6;
-    else if (rssiDiff <= 25) radio = 2;
-
-    int timing = gapMs <= 2000 ? 5 : (gapMs <= 5000 ? 3 : 1);
-    return clampInt(identity + structure + payload + radio + timing, 0, 100);
-}
-
-void resetHunterCandidates(HunterState &state) {
-    for (auto &candidate : state.candidates) candidate = HunterCandidate{};
-}
-
-void pushAddressHistory(HunterState &state, const char *address) {
-    if (!address || !address[0]) return;
-    if (state.addressHistoryCount < MAX_ADDRESS_HISTORY) {
-        std::strncpy(state.addressHistory[state.addressHistoryCount++], address, 17);
-        state.addressHistory[state.addressHistoryCount - 1][17] = '\0';
-        return;
-    }
-    for (size_t i = 1; i < MAX_ADDRESS_HISTORY; i++)
-        std::strncpy(state.addressHistory[i - 1], state.addressHistory[i], 17);
-    std::strncpy(state.addressHistory[MAX_ADDRESS_HISTORY - 1], address, 17);
-    state.addressHistory[MAX_ADDRESS_HISTORY - 1][17] = '\0';
-}
-
-int bestCandidateIndex(const HunterState &state) {
-    int best = -1;
-    for (size_t i = 0; i < MAX_CANDIDATES; i++) {
-        if (!state.candidates[i].valid) continue;
-        if (best < 0 || state.candidates[i].score > state.candidates[best].score) best = static_cast<int>(i);
-    }
-    return best;
-}
-
-int secondCandidateScore(const HunterState &state, int bestIndex) {
-    int second = 0;
-    for (size_t i = 0; i < MAX_CANDIDATES; i++) {
-        if (!state.candidates[i].valid || static_cast<int>(i) == bestIndex) continue;
-        second = std::max(second, static_cast<int>(state.candidates[i].score));
-    }
-    return second;
-}
-
-void acceptHandoff(HunterState &state, const HunterCandidate &candidate, uint32_t now) {
-    pushAddressHistory(state, state.target.address);
-    state.target = candidate.obs;
-    uint8_t source = ID_ADDRESS;
-    const String identity = resolvedIdentity(candidate.obs, source);
-    if (!identity.isEmpty()) {
-        copyName(state.currentName, identity);
-        state.identitySource = source;
-    }
-    updateFingerprintModel(state.model, candidate.obs);
-    state.handoffs++;
-    state.lastHandoffScore = candidate.score;
-    state.handoffNoticeUntilMs = now + HANDOFF_NOTICE_MS;
-    state.fastRssi = static_cast<float>(candidate.obs.rssi);
-    state.stableRssi = static_cast<float>(candidate.obs.rssi);
-    state.bestRssi = state.stableRssi;
-    state.trend = 0;
-    state.jitter = 0;
-    state.samples = 1;
-    state.lastSeenMs = now;
-    state.lastPacketMs = now;
-    state.rateWindowStartMs = now;
-    state.rateWindowPackets = 1;
-    state.packetsPerSecond = 0;
-    state.gapEmaMs = 0;
-    resetHunterCandidates(state);
-}
+void clearCandidates(HunterState &s) { for (auto &c : s.candidates) c = Candidate{}; }
+void pushHistory(HunterState &s, const char *address) { if (!address || !address[0]) return; if (s.historyCount < MAX_HISTORY) { std::strncpy(s.history[s.historyCount], address, 17); s.history[s.historyCount++][17] = '\0'; return; } for (size_t i = 1; i < MAX_HISTORY; i++) std::strncpy(s.history[i - 1], s.history[i], 17); std::strncpy(s.history[MAX_HISTORY - 1], address, 17); s.history[MAX_HISTORY - 1][17] = '\0'; }
+int bestCandidate(const HunterState &s) { int best = -1; for (size_t i = 0; i < MAX_CANDIDATES; i++) if (s.candidates[i].valid && (best < 0 || s.candidates[i].score > s.candidates[best].score)) best = i; return best; }
+int secondScore(const HunterState &s, int best) { int second = 0; for (size_t i = 0; i < MAX_CANDIDATES; i++) if (s.candidates[i].valid && static_cast<int>(i) != best) second = std::max(second, static_cast<int>(s.candidates[i].score)); return second; }
+void acceptHandoff(HunterState &s, const Candidate &c, uint32_t now) { pushHistory(s, s.target.address); s.target = c.obs; uint8_t src = ID_MAC; const String id = resolvedIdentity(c.obs, src); if (!id.isEmpty()) { copyName(s.currentName, id); s.identitySource = src; } updateFingerprint(s.model, c.obs); s.handoffs++; s.lastHandoffScore = c.score; s.handoffNotice = now + NOTICE_MS; s.fastRssi = s.stableRssi = s.bestRssi = c.obs.rssi; s.trend = s.jitter = 0; s.samples = 1; s.lastSeen = s.lastPacket = now; s.rateStart = now; s.ratePackets = 1; s.pps = s.gapEma = 0; clearCandidates(s); }
 
 class HunterCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device) return;
-        BleObservation obs;
-        fillObservation(device, obs);
-        const uint32_t now = millis();
-
-        portENTER_CRITICAL(&reconMux);
-        const bool current = std::strncmp(obs.address, hunterState.target.address, 17) == 0;
-        const HunterState snapshot = hunterState;
-        portEXIT_CRITICAL(&reconMux);
-
+        if (!device) return; BleObservation o; fillObservation(device, o); const uint32_t now = millis(); portENTER_CRITICAL(&reconMux); const bool current = std::strncmp(o.address, hunterState.target.address, 17) == 0; const HunterState snap = hunterState; portEXIT_CRITICAL(&reconMux);
         if (current) {
-            const bool wasLost = snapshot.initialized && now - snapshot.lastSeenMs > LOST_TARGET_MS;
-            if (wasLost) medianWindow.reset();
-            medianWindow.add(obs.rssi);
-            const float med = medianWindow.median();
-
-            portENTER_CRITICAL(&reconMux);
-            updateFingerprintModel(hunterState.model, obs);
-            hunterState.target = obs;
-            uint8_t source = ID_ADDRESS;
-            const String identity = resolvedIdentity(obs, source);
-            if (!identity.isEmpty() && source == ID_ADVERTISED_NAME) {
-                copyName(hunterState.currentName, identity);
-                hunterState.identitySource = source;
-            }
-            if (wasLost) {
-                hunterState.lastOfflineMs = now - hunterState.lastSeenMs;
-                hunterState.reacquisitions++;
-                hunterState.reacquireNoticeUntilMs = now + REACQUIRE_NOTICE_MS;
-                hunterState.fastRssi = med;
-                hunterState.stableRssi = med;
-                hunterState.bestRssi = med;
-                hunterState.trend = 0;
-                hunterState.jitter = 0;
-                hunterState.samples = 1;
-                hunterState.lastSeenMs = now;
-                hunterState.lastPacketMs = now;
-                hunterState.rateWindowStartMs = now;
-                hunterState.rateWindowPackets = 1;
-                hunterState.packetsPerSecond = 0;
-                hunterState.gapEmaMs = 0;
-                portEXIT_CRITICAL(&reconMux);
-                return;
-            }
-            if (hunterState.lastPacketMs) {
-                const uint32_t gap = now - hunterState.lastPacketMs;
-                if (gap < 60000) {
-                    if (hunterState.gapEmaMs <= 0.1f) hunterState.gapEmaMs = static_cast<float>(gap);
-                    else hunterState.gapEmaMs += 0.18f * (static_cast<float>(gap) - hunterState.gapEmaMs);
-                }
-            }
-            hunterState.lastPacketMs = now;
-            hunterState.rateWindowPackets++;
-            const uint32_t window = now - hunterState.rateWindowStartMs;
-            if (window >= 1000) {
-                hunterState.packetsPerSecond = hunterState.rateWindowPackets * 1000.0f / window;
-                hunterState.rateWindowStartMs = now;
-                hunterState.rateWindowPackets = 0;
-            }
-            if (!hunterState.initialized) {
-                hunterState.fastRssi = med;
-                hunterState.stableRssi = med;
-                hunterState.bestRssi = med;
-                hunterState.samples = 1;
-                hunterState.lastSeenMs = now;
-                hunterState.initialized = true;
-                portEXIT_CRITICAL(&reconMux);
-                return;
-            }
-            constexpr float FAST_ALPHA = 0.45f;
-            constexpr float STABLE_ALPHA = 0.14f;
-            constexpr float JITTER_ALPHA = 0.18f;
-            hunterState.fastRssi += FAST_ALPHA * (med - hunterState.fastRssi);
-            hunterState.stableRssi += STABLE_ALPHA * (med - hunterState.stableRssi);
-            hunterState.trend = hunterState.fastRssi - hunterState.stableRssi;
-            hunterState.jitter += JITTER_ALPHA * (fabsf(static_cast<float>(obs.rssi) - hunterState.fastRssi) - hunterState.jitter);
-            if (hunterState.stableRssi > hunterState.bestRssi) hunterState.bestRssi = hunterState.stableRssi;
-            hunterState.samples++;
-            hunterState.lastSeenMs = now;
-            resetHunterCandidates(hunterState);
-            portEXIT_CRITICAL(&reconMux);
-            return;
+            const bool lost = snap.initialized && now - snap.lastSeen > LOST_MS; if (lost) medianWindow.reset(); medianWindow.add(o.rssi); const float med = medianWindow.median(); portENTER_CRITICAL(&reconMux); updateFingerprint(hunterState.model, o); hunterState.target = o; uint8_t src = ID_MAC; const String id = resolvedIdentity(o, src); if (!id.isEmpty() && src == ID_NAME) { copyName(hunterState.currentName, id); hunterState.identitySource = src; }
+            if (lost) { hunterState.offlineMs = now - hunterState.lastSeen; hunterState.reacquisitions++; hunterState.reacquireNotice = now + NOTICE_MS; hunterState.fastRssi = hunterState.stableRssi = hunterState.bestRssi = med; hunterState.trend = hunterState.jitter = 0; hunterState.samples = 1; hunterState.lastSeen = hunterState.lastPacket = now; hunterState.rateStart = now; hunterState.ratePackets = 1; hunterState.pps = hunterState.gapEma = 0; portEXIT_CRITICAL(&reconMux); return; }
+            if (hunterState.lastPacket) { const uint32_t gap = now - hunterState.lastPacket; if (gap < 60000) hunterState.gapEma = hunterState.gapEma <= 0.1f ? gap : hunterState.gapEma + 0.18f * (gap - hunterState.gapEma); }
+            hunterState.lastPacket = now; hunterState.ratePackets++; if (now - hunterState.rateStart >= 1000) { hunterState.pps = hunterState.ratePackets * 1000.0f / (now - hunterState.rateStart); hunterState.rateStart = now; hunterState.ratePackets = 0; }
+            if (!hunterState.initialized) { hunterState.fastRssi = hunterState.stableRssi = hunterState.bestRssi = med; hunterState.samples = 1; hunterState.lastSeen = now; hunterState.initialized = true; portEXIT_CRITICAL(&reconMux); return; }
+            hunterState.fastRssi += 0.45f * (med - hunterState.fastRssi); hunterState.stableRssi += 0.14f * (med - hunterState.stableRssi); hunterState.trend = hunterState.fastRssi - hunterState.stableRssi; hunterState.jitter += 0.18f * (fabsf(static_cast<float>(o.rssi) - hunterState.fastRssi) - hunterState.jitter); if (hunterState.stableRssi > hunterState.bestRssi) hunterState.bestRssi = hunterState.stableRssi; hunterState.samples++; hunterState.lastSeen = now; clearCandidates(hunterState); portEXIT_CRITICAL(&reconMux); return;
         }
-
-        if (!snapshot.initialized) return;
-        const uint32_t gap = now - snapshot.lastSeenMs;
-        if (gap < HANDOFF_ARM_MS || gap > HANDOFF_MAX_GAP_MS) return;
-
-        const int score = handoffScore(snapshot, obs, gap);
-        if (score < 45) return;
-
-        portENTER_CRITICAL(&reconMux);
-        int slot = -1;
-        for (size_t i = 0; i < MAX_CANDIDATES; i++) {
-            if (hunterState.candidates[i].valid && std::strncmp(hunterState.candidates[i].obs.address, obs.address, 17) == 0) {
-                slot = static_cast<int>(i);
-                break;
-            }
-        }
-        if (slot < 0) {
-            for (size_t i = 0; i < MAX_CANDIDATES; i++) {
-                if (!hunterState.candidates[i].valid) { slot = static_cast<int>(i); break; }
-            }
-        }
-        if (slot < 0) {
-            int weakest = 0;
-            for (size_t i = 1; i < MAX_CANDIDATES; i++)
-                if (hunterState.candidates[i].score < hunterState.candidates[weakest].score) weakest = static_cast<int>(i);
-            if (score > hunterState.candidates[weakest].score) slot = weakest;
-        }
+        if (!snap.initialized) return; const uint32_t gap = now - snap.lastSeen; if (gap < HANDOFF_ARM_MS || gap > HANDOFF_MAX_GAP_MS) return; const int score = scoreCandidate(snap, o, gap); if (score < 45) return;
+        portENTER_CRITICAL(&reconMux); int slot = -1; for (size_t i = 0; i < MAX_CANDIDATES; i++) if (hunterState.candidates[i].valid && std::strncmp(hunterState.candidates[i].obs.address, o.address, 17) == 0) { slot = i; break; }
+        if (slot < 0) for (size_t i = 0; i < MAX_CANDIDATES; i++) if (!hunterState.candidates[i].valid) { slot = i; break; }
+        if (slot < 0) { int weak = 0; for (size_t i = 1; i < MAX_CANDIDATES; i++) if (hunterState.candidates[i].score < hunterState.candidates[weak].score) weak = i; if (score > hunterState.candidates[weak].score) slot = weak; }
         if (slot < 0) { portEXIT_CRITICAL(&reconMux); return; }
-
-        HunterCandidate &candidate = hunterState.candidates[slot];
-        if (!candidate.valid || now - candidate.lastSeenMs > CANDIDATE_STALE_MS) {
-            candidate = HunterCandidate{};
-            candidate.firstSeenMs = now;
-            candidate.valid = true;
-        }
-        candidate.obs = obs;
-        candidate.score = static_cast<uint8_t>(score);
-        candidate.hits = candidate.hits < 255 ? candidate.hits + 1 : 255;
-        candidate.lastSeenMs = now;
-
-        const int best = bestCandidateIndex(hunterState);
-        const int second = secondCandidateScore(hunterState, best);
-        const bool dominant = best >= 0 && (second == 0 || hunterState.candidates[best].score - second >= HANDOFF_MARGIN_REQUIRED);
-        bool accepted = false;
-        HunterCandidate acceptedCandidate;
-        if (best >= 0 && dominant && hunterState.candidates[best].score >= HANDOFF_SCORE_THRESHOLD &&
-            hunterState.candidates[best].hits >= HANDOFF_HITS_REQUIRED) {
-            acceptedCandidate = hunterState.candidates[best];
-            acceptHandoff(hunterState, acceptedCandidate, now);
-            accepted = true;
-        }
-        portEXIT_CRITICAL(&reconMux);
-
-        if (accepted) {
-            medianWindow.reset();
-            medianWindow.add(acceptedCandidate.obs.rssi);
-            Serial.printf("[BLE-HUNTER] HANDOFF -> %s score=%u hits=%u gap=%lums\n",
-                          acceptedCandidate.obs.address, acceptedCandidate.score, acceptedCandidate.hits,
-                          static_cast<unsigned long>(gap));
-        }
+        Candidate &c = hunterState.candidates[slot]; if (!c.valid || now - c.lastSeen > CANDIDATE_STALE_MS) { c = Candidate{}; c.valid = true; c.firstSeen = now; } c.obs = o; c.score = score; c.hits = c.hits < 255 ? c.hits + 1 : 255; c.lastSeen = now;
+        const int best = bestCandidate(hunterState), second = secondScore(hunterState, best); const bool dominant = best >= 0 && (second == 0 || hunterState.candidates[best].score - second >= HANDOFF_MARGIN); bool accepted = false; Candidate acceptedCandidate; if (best >= 0 && dominant && hunterState.candidates[best].score >= HANDOFF_THRESHOLD && hunterState.candidates[best].hits >= HANDOFF_HITS) { acceptedCandidate = hunterState.candidates[best]; acceptHandoff(hunterState, acceptedCandidate, now); accepted = true; }
+        portEXIT_CRITICAL(&reconMux); if (accepted) { medianWindow.reset(); medianWindow.add(acceptedCandidate.obs.rssi); Serial.printf("[BLE-HUNTER] HANDOFF %s score=%u hits=%u gap=%lums\n", acceptedCandidate.obs.address, acceptedCandidate.score, acceptedCandidate.hits, static_cast<unsigned long>(gap)); }
     }
 };
-
 HunterCallbacks hunterCallbacks;
 
-void resetHunter(const BleObservation &target) {
-    portENTER_CRITICAL(&reconMux);
-    hunterState = HunterState{};
-    hunterState.target = target;
-    uint8_t source = ID_ADDRESS;
-    const String identity = resolvedIdentity(target, source);
-    if (!identity.isEmpty()) copyName(hunterState.currentName, identity);
-    hunterState.identitySource = source;
-    updateFingerprintModel(hunterState.model, target);
-    hunterState.initialized = false;
-    resetHunterCandidates(hunterState);
-    portEXIT_CRITICAL(&reconMux);
-    medianWindow.reset();
+void resetHunter(const BleObservation &target) { portENTER_CRITICAL(&reconMux); hunterState = HunterState{}; hunterState.target = target; uint8_t src = ID_MAC; const String id = resolvedIdentity(target, src); if (!id.isEmpty()) copyName(hunterState.currentName, id); hunterState.identitySource = src; updateFingerprint(hunterState.model, target); std::strncpy(selectedAddress, target.address, 17); selectedAddress[17] = '\0'; portEXIT_CRITICAL(&reconMux); medianWindow.reset(); }
+HunterState hunterSnapshot() { HunterState s; portENTER_CRITICAL(&reconMux); s = hunterState; portEXIT_CRITICAL(&reconMux); return s; }
+
+void drawHunterDetails(const HunterState &s) {
+    std::vector<String> lines; appendWrapped(lines, "IDENTITY: " + String(s.currentName[0] ? s.currentName : "Unnamed")); appendWrapped(lines, "SOURCE: " + String(s.identitySource == ID_NAME ? "ADVERTISED NAME" : s.identitySource == ID_MFG ? "MANUFACTURER" : "ADDRESS")); appendWrapped(lines, "CURRENT: " + String(s.target.address)); appendWrapped(lines, "TYPE: " + addressTypeName(s.target)); appendWrapped(lines, "COMPANY: 0x" + String(s.target.companyId, HEX)); appendWrapped(lines, "SERVICE HASH: " + String(s.target.serviceHash, HEX)); appendWrapped(lines, "SHAPE HASH: " + String(s.target.shapeHash, HEX)); appendWrapped(lines, "PAYLOAD: " + String(s.target.payloadLen) + " bytes"); size_t stable = 0; for (size_t i = 0; i < s.model.len; i++) if (s.model.stable[i]) stable++; appendWrapped(lines, "STABLE: " + String(stable) + "  VOLATILE: " + String(s.model.len - stable)); appendWrapped(lines, "OBSERVATIONS: " + String(s.model.observations)); appendWrapped(lines, "ADDRESS HISTORY:"); for (uint8_t i = 0; i < s.historyCount; i++) appendWrapped(lines, String(i + 1) + ": " + String(s.history[i])); appendWrapped(lines, "CANDIDATES:"); for (size_t i = 0; i < MAX_CANDIDATES; i++) if (s.candidates[i].valid) appendWrapped(lines, String(i + 1) + " " + String(s.candidates[i].obs.address) + " score=" + String(s.candidates[i].score) + " hits=" + String(s.candidates[i].hits));
+    size_t scroll = 0; while (!check(EscPress)) { tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.drawCentreString("BLE HUNTER DETAILS", tftWidth / 2, 29, 1); const int first = 50, footer = tftHeight - 18, visible = (footer - first) / 12; if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1; for (int r = 0; r < visible && scroll + r < lines.size(); r++) tft.drawString(lines[scroll + r], 8, first + r * 12, 1); if (check(PrevPress) && scroll) scroll--; if (check(NextPress)) scroll++; tft.drawCentreString("Turn scroll  Esc", tftWidth / 2, footer, 1); drawStatusBar(); delay(20); }
 }
-
-HunterState hunterSnapshot() {
-    HunterState snapshot;
-    portENTER_CRITICAL(&reconMux);
-    snapshot = hunterState;
-    portEXIT_CRITICAL(&reconMux);
-    return snapshot;
-}
-
-String hunterStatus(const HunterState &state) {
-    const uint32_t now = millis();
-    if (state.handoffNoticeUntilMs > now) return "HANDOFF " + String(state.lastHandoffScore);
-    if (state.reacquireNoticeUntilMs > now) return "REACQUIRED " + String(state.lastOfflineMs / 1000) + "s";
-    if (!state.initialized) return "SEARCHING";
-    if (now - state.lastSeenMs > LOST_TARGET_MS) {
-        const int best = bestCandidateIndex(state);
-        if (best >= 0) return "CAND " + String(state.candidates[best].score) + " x" + String(state.candidates[best].hits);
-        return "TARGET LOST";
-    }
-    if (state.trend >= 3.0f) return "WARMER";
-    if (state.trend <= -3.0f) return "COLDER";
-    return "STEADY";
-}
-
-void drawHunter(const HunterState &state) {
-    tft.fillScreen(bruceConfig.bgColor);
-    drawMainBorder(false);
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.setTextSize(FP);
-    tft.drawCentreString("BLE HUNTER DF", tftWidth / 2, 29, 1);
-    String identity = state.currentName[0] ? String(state.currentName) : String(state.target.address);
-    tft.drawCentreString(identity, tftWidth / 2, 42, 1);
-    tft.drawCentreString(String(addressTypeName(state.target)) + "  " + state.target.address, tftWidth / 2, 54, 1);
-
-    const String status = hunterStatus(state);
-    const uint16_t statusColor = status.startsWith("WARMER") || status.startsWith("HANDOFF") || status.startsWith("REACQUIRED") ? TFT_GREEN :
-                                 (status.startsWith("COLDER") ? TFT_YELLOW :
-                                  (status.startsWith("TARGET") ? TFT_RED : bruceConfig.priColor));
-    tft.setTextColor(statusColor, bruceConfig.bgColor);
-    tft.drawCentreString(status, tftWidth / 2, 69, 1);
-
-    const int x = 14, y = 88, w = tftWidth - 28, h = 18;
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.drawRect(x, y, w, h, bruceConfig.priColor);
-    const float bounded = clampFloat(state.stableRssi, -100, -35);
-    const int filled = static_cast<int>(((bounded + 100) / 65.0f) * (w - 2));
-    if (filled > 0) tft.fillRect(x + 1, y + 1, filled, h - 2, bruceConfig.priColor);
-
-    tft.drawString("RSSI " + String(state.stableRssi, 1) + " / " + String(state.bestRssi, 1), 12, 115, 1);
-    tft.drawString("TREND " + String(state.trend, 1) + "  JIT " + String(state.jitter, 1), 12, 128, 1);
-    tft.drawString("RATE " + String(state.packetsPerSecond, 1) + "/s  GAP " + String(state.gapEmaMs, 0) + "ms", 12, 141, 1);
-    tft.drawString("HANDOFFS " + String(state.handoffs) + "  REACQ " + String(state.reacquisitions), 12, 154, 1);
-    tft.drawString("MATCH " + String(state.lastHandoffScore), 12, 167, 1);
-
-    if (state.addressHistoryCount) {
-        tft.drawString("ADDR HISTORY", 12, 182, 1);
-        const int rows = std::min<int>(3, state.addressHistoryCount);
-        for (int i = 0; i < rows; i++) tft.drawString(String(i + 1) + ": " + String(state.addressHistory[state.addressHistoryCount - 1 - i]), 12, 195 + i * 11, 1);
-    }
-    tft.drawCentreString("Hold details  Esc back", tftWidth / 2, tftHeight - 14, 1);
-    drawStatusBar();
-}
-
-void drawHunterDetails(const HunterState &state) {
-    std::vector<String> lines;
-    appendWrapped(lines, "IDENTITY: " + String(state.currentName[0] ? state.currentName : "Unnamed"));
-    appendWrapped(lines, "SOURCE: " + String(state.identitySource == ID_ADVERTISED_NAME ? "ADVERTISED NAME" :
-                                                 (state.identitySource == ID_MANUFACTURER ? "MANUFACTURER" : "ADDRESS")));
-    appendWrapped(lines, "CURRENT: " + String(state.target.address));
-    appendWrapped(lines, "ADDR TYPE: " + addressTypeName(state.target));
-    appendWrapped(lines, "COMPANY: 0x" + String(state.target.companyId, HEX));
-    appendWrapped(lines, "SERV HASH: " + String(state.target.serviceHash, HEX));
-    appendWrapped(lines, "SHAPE HASH: " + String(state.target.shapeHash, HEX));
-    appendWrapped(lines, "PAYLOAD: " + String(state.target.payloadLen) + " bytes");
-    appendWrapped(lines, "STABLE BYTES: " + String([&]() { size_t n = 0; for (size_t i = 0; i < state.model.baselineLen; i++) if (state.model.stable[i]) n++; return n; }()));
-    appendWrapped(lines, "VOLATILE BYTES: " + String([&]() { size_t n = 0; for (size_t i = 0; i < state.model.baselineLen; i++) if (!state.model.stable[i]) n++; return n; }()));
-    appendWrapped(lines, "OBSERVATIONS: " + String(state.model.observations));
-    appendWrapped(lines, "CANDIDATES:");
-    for (size_t i = 0; i < MAX_CANDIDATES; i++) if (state.candidates[i].valid)
-        appendWrapped(lines, String(i + 1) + " " + String(state.candidates[i].obs.address) + " score=" + String(state.candidates[i].score) + " hits=" + String(state.candidates[i].hits));
-    size_t scroll = 0;
-    while (!check(EscPress)) {
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString("BLE HUNTER DETAILS", tftWidth / 2, 29, 1);
-        const int firstY = 50, footerY = tftHeight - 18, visible = (footerY - firstY) / 12;
-        if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1;
-        for (int row = 0; row < visible && scroll + row < lines.size(); row++) tft.drawString(lines[scroll + row], 8, firstY + row * 12, 1);
-        if (check(PrevPress) && scroll) scroll--;
-        if (check(NextPress)) scroll++;
-        delay(20);
-    }
-}
-
-std::vector<BleObservation> discoverObservations(bool active) {
-    std::vector<BleObservation> targets;
-    ble_scan_setup();
-    if (!pBLEScan) return targets;
-    pBLEScan->stop();
-    pBLEScan->clearResults();
-    pBLEScan->setActiveScan(active);
-    pBLEScan->setInterval(SCAN_INT);
-    pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(80);
-    displayTextLine(active ? "Scanning BLE advertisers..." : "Listening for BLE advertisers...");
-    BLEScanResults results = pBLEScan->getResults(DISCOVERY_TIME_MS, false);
-    const int count = results.getCount();
-    targets.reserve(std::min(count, 60));
-    for (int i = 0; i < count && targets.size() < 60; i++) {
-        const NimBLEAdvertisedDevice *device = results.getDevice(i);
-        if (!device) continue;
-        BleObservation obs;
-        fillObservation(device, obs);
-        targets.push_back(obs);
-    }
-    std::sort(targets.begin(), targets.end(), [](const BleObservation &a, const BleObservation &b) { return a.rssi > b.rssi; });
-    pBLEScan->clearResults();
-    return targets;
-}
-
-bool startPassiveHunterScan() {
-    if (!pBLEScan) return false;
-    pBLEScan->stop();
-    pBLEScan->clearResults();
-    pBLEScan->setActiveScan(false);
-    pBLEScan->setInterval(SCAN_INT);
-    pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(0);
-    pBLEScan->setScanCallbacks(&hunterCallbacks, true);
-    return pBLEScan->start(0, false, true);
-}
-
+bool startPassiveHunter() { if (!pBLEScan) return false; pBLEScan->stop(); pBLEScan->clearResults(); pBLEScan->setActiveScan(false); pBLEScan->setInterval(SCAN_INT); pBLEScan->setWindow(SCAN_WINDOW); pBLEScan->setMaxResults(0); pBLEScan->setScanCallbacks(&hunterCallbacks, true); return pBLEScan->start(0, false, true); }
 void huntTarget(const BleObservation &target) {
-    ble_scan_setup();
-    if (!pBLEScan) { displayError("BLE scanner unavailable", true); return; }
-    resetHunter(target);
-    if (!startPassiveHunterScan()) { stopBLEStack(); displayError("Unable to start BLE scan", true); return; }
-    bool details = false;
-    uint32_t lastDraw = 0;
-    while (!check(EscPress)) {
-        if (check(LongPress) || check(SelPress)) {
-            details = true;
-            drawHunterDetails(hunterSnapshot());
-            details = false;
-            lastDraw = 0;
-            delay(100);
-        }
-        if (millis() - lastDraw >= 250) {
-            drawHunter(hunterSnapshot());
-            lastDraw = millis();
-        }
-        delay(10);
-    }
-    pBLEScan->stop();
-    pBLEScan->setScanCallbacks(nullptr, false);
-    pBLEScan->setMaxResults(0xFF);
-    pBLEScan->clearResults();
-    stopBLEStack();
+    ble_scan_setup(); if (!pBLEScan) { displayError("BLE scanner unavailable", true); return; } resetHunter(target); if (!startPassiveHunter()) { stopBLEStack(); displayError("Unable to start BLE scan", true); return; }
+    uint32_t draw = 0; while (!check(EscPress)) { if (check(LongPress) || check(SelPress)) { drawHunterDetails(hunterSnapshot()); draw = 0; delay(100); } if (millis() - draw >= 250) { const HunterState s = hunterSnapshot(); tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.setTextSize(FP); tft.drawCentreString("BLE HUNTER DF", tftWidth / 2, 29, 1); tft.drawCentreString(s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 42, 1); tft.drawCentreString(addressTypeName(s.target) + " " + String(s.target.address), tftWidth / 2, 54, 1); const uint32_t now = millis(); String status = now - s.handoffNotice < NOTICE_MS ? "HANDOFF " + String(s.lastHandoffScore) : now - s.reacquireNotice < NOTICE_MS ? "REACQUIRED " + String(s.offlineMs / 1000) + "s" : now - s.lastSeen > LOST_MS ? "TARGET LOST" : s.trend >= 3 ? "WARMER" : s.trend <= -3 ? "COLDER" : "STEADY"; tft.setTextColor(status.startsWith("TARGET") ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor); tft.drawCentreString(status, tftWidth / 2, 69, 1); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.drawString("RSSI " + String(s.stableRssi, 1) + "  PEAK " + String(s.bestRssi, 1), 10, 88, 1); tft.drawString("TREND " + String(s.trend, 1) + "  JIT " + String(s.jitter, 1), 10, 101, 1); tft.drawString("RATE " + String(s.pps, 1) + "/s  GAP " + String(s.gapEma, 0) + "ms", 10, 114, 1); tft.drawString("HANDOFF " + String(s.handoffs) + "  REACQ " + String(s.reacquisitions), 10, 127, 1); tft.drawString("MATCH " + String(s.lastHandoffScore), 10, 140, 1); tft.drawCentreString("Hold details  Esc back", tftWidth / 2, tftHeight - 14, 1); drawStatusBar(); draw = millis(); } delay(10); }
+    pBLEScan->stop(); pBLEScan->setScanCallbacks(nullptr, false); pBLEScan->setMaxResults(0xFF); pBLEScan->clearResults(); stopBLEStack();
 }
 
-String signalMeaning(int rssi) {
-    if (rssi >= -50) return "Very strong / likely close";
-    if (rssi >= -65) return "Strong / likely nearby";
-    if (rssi >= -78) return "Moderate";
-    if (rssi >= -90) return "Weak / obstructed or distant";
-    return "Very weak";
+std::vector<BleObservation> discoverTargets(bool active) {
+    std::vector<BleObservation> out; ble_scan_setup(); if (!pBLEScan) return out; pBLEScan->stop(); pBLEScan->clearResults(); pBLEScan->setActiveScan(active); pBLEScan->setInterval(SCAN_INT); pBLEScan->setWindow(SCAN_WINDOW); pBLEScan->setMaxResults(80); displayTextLine(active ? "Scanning BLE advertisers..." : "Listening for BLE advertisers..."); BLEScanResults results = pBLEScan->getResults(DISCOVERY_MS, false); out.reserve(std::min(results.getCount(), 60)); for (int i = 0; i < results.getCount() && out.size() < 60; i++) { const NimBLEAdvertisedDevice *d = results.getDevice(i); if (!d) continue; BleObservation o; fillObservation(d, o); out.push_back(o); } std::sort(out.begin(), out.end(), [](const BleObservation &a, const BleObservation &b) { return a.rssi > b.rssi; }); pBLEScan->clearResults(); return out;
 }
 
-void updateMutation(MutationModel &model, const BleObservation &obs) {
-    if (!obs.payloadLen) return;
-    if (!model.valid) {
-        std::memcpy(model.baseline, obs.payload, obs.payloadLen);
-        std::memcpy(model.last, obs.payload, obs.payloadLen);
-        model.baselineLen = obs.payloadLen;
-        model.observations = 1;
-        model.valid = true;
-        return;
+void updateMutation(MutationModel &m, const BleObservation &o) {
+    if (!o.payloadLen) return;
+    if (!m.valid) { std::memcpy(m.baseline, o.payload, o.payloadLen); std::memcpy(m.last, o.payload, o.payloadLen); m.len = o.payloadLen; m.observations = 1; m.valid = true; return; }
+    const size_t n = std::min<size_t>(m.len, o.payloadLen); m.lastDiffLen = 0; m.lastChanged = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (m.last[i] != o.payload[i]) { m.volatileMask[i] = true; if (m.changeHits[i] < 255) m.changeHits[i]++; if (static_cast<uint8_t>(m.last[i] + 1) == o.payload[i] && m.counterHits[i] < 255) m.counterHits[i]++; if (m.lastDiffLen < MAX_PAYLOAD) m.lastDiff[m.lastDiffLen++] = static_cast<uint8_t>(i); m.lastChanged++; }
+        m.last[i] = o.payload[i];
     }
-    const size_t common = std::min<size_t>(model.baselineLen, obs.payloadLen);
-    uint16_t changed = 0;
-    model.lastDiffLen = 0;
-    for (size_t i = 0; i < common; i++) {
-        if (model.last[i] != obs.payload[i]) {
-            model.volatileMask[i] = true;
-            if (model.changeHits[i] < 255) model.changeHits[i]++;
-            if (static_cast<uint8_t>(model.last[i] + 1) == obs.payload[i] && model.counterHits[i] < 255) model.counterHits[i]++;
-            if (model.lastDiffLen < MAX_PAYLOAD_BYTES) model.lastDiff[model.lastDiffLen++] = static_cast<uint8_t>(i);
-            changed++;
-        }
-        model.last[i] = obs.payload[i];
-    }
-    if (changed) model.changes++;
-    model.lastChangedBytes = changed;
-    model.observations++;
+    if (m.lastChanged) m.changes++; m.observations++;
 }
 
-String mutationClass(const MutationModel &model) {
-    if (!model.observations || !model.changes) return "NO MUTATION OBSERVED";
-    size_t volatileBytes = 0, counterBytes = 0;
-    for (size_t i = 0; i < model.baselineLen; i++) {
-        if (model.volatileMask[i]) volatileBytes++;
-        if (model.counterHits[i] >= 2) counterBytes++;
-    }
-    if (counterBytes) return "COUNTER-LIKE FIELD(S) DETECTED";
-    if (volatileBytes * 100 >= model.baselineLen * 60) return "HIGH VOLATILITY / POSSIBLY ENCRYPTED";
-    return "PARTIAL VOLATILITY / LIVE DATA";
-}
-
-void updateFcf1(Fcf1Tracker &tracker, const BleObservation &obs, uint32_t now) {
-    if (!obs.hasFcf1) return;
-    const bool macChanged = tracker.seen && std::strncmp(tracker.currentAddress, obs.address, 17) != 0;
-    bool payloadChanged = false;
-    if (tracker.seen && tracker.len != obs.fcf1Len) payloadChanged = true;
-    if (tracker.seen && tracker.len == obs.fcf1Len && tracker.len && std::memcmp(tracker.payload, obs.fcf1, tracker.len) != 0) payloadChanged = true;
-
-    if (!tracker.seen) {
-        tracker.firstSeenMs = now;
-        tracker.seen = true;
-    } else {
-        if (macChanged) tracker.macChanges++;
-        if (payloadChanged) tracker.payloadChanges++;
-        if (macChanged && payloadChanged) tracker.correlatedChanges++;
-        else if (macChanged) tracker.macOnlyChanges++;
-        else if (payloadChanged) tracker.payloadOnlyChanges++;
-    }
-    if (macChanged) {
-        std::strncpy(tracker.previousAddress, tracker.currentAddress, 17);
-        tracker.previousAddress[17] = '\0';
-    }
-    std::strncpy(tracker.currentAddress, obs.address, 17);
-    tracker.currentAddress[17] = '\0';
-    tracker.addressType = obs.addressType;
-    tracker.len = obs.fcf1Len;
-    if (tracker.len) std::memcpy(tracker.payload, obs.fcf1, tracker.len);
-    tracker.lastSeenMs = now;
-    tracker.count++;
+void updateFcf1(Fcf1Tracker &f, const BleObservation &o, uint32_t now) {
+    if (!o.hasFcf1) return; const bool macChanged = f.seen && std::strncmp(f.currentAddress, o.address, 17) != 0; const bool payloadChanged = f.seen && (f.len != o.fcf1Len || (f.len && std::memcmp(f.payload, o.fcf1, f.len) != 0));
+    if (!f.seen) { f.seen = true; f.firstSeen = now; } else { if (macChanged) f.macChanges++; if (payloadChanged) f.payloadChanges++; if (macChanged && payloadChanged) f.correlated++; else if (macChanged) f.macOnly++; else if (payloadChanged) f.payloadOnly++; }
+    if (macChanged) { std::strncpy(f.previousAddress, f.currentAddress, 17); f.previousAddress[17] = '\0'; } std::strncpy(f.currentAddress, o.address, 17); f.currentAddress[17] = '\0'; f.addressType = o.addressType; f.len = o.fcf1Len; if (f.len) std::memcpy(f.payload, o.fcf1, f.len); f.lastSeen = now; f.count++;
 }
 
 class SnifferCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device) return;
-        BleObservation obs;
-        fillObservation(device, obs);
-        const uint32_t now = millis();
-
-        portENTER_CRITICAL(&reconMux);
-        bool selected = std::strncmp(obs.address, selectedAddress, 17) == 0;
-        if (!selected && snifferState.initialized && now - snifferState.lastSeenMs > LOST_TARGET_MS) {
-            HunterState temp;
-            temp.target = snifferState.target;
-            temp.model.valid = snifferState.mutation.valid;
-            if (snifferState.mutation.valid) {
-                std::memcpy(temp.model.baseline, snifferState.mutation.baseline, MAX_PAYLOAD_BYTES);
-                std::memcpy(temp.model.last, snifferState.mutation.last, MAX_PAYLOAD_BYTES);
-                for (size_t i = 0; i < MAX_PAYLOAD_BYTES; i++) temp.model.stable[i] = !snifferState.mutation.volatileMask[i];
-                temp.model.baselineLen = snifferState.mutation.baselineLen;
-            }
-            selected = handoffScore(temp, obs, now - snifferState.lastSeenMs) >= HANDOFF_SCORE_THRESHOLD;
-            if (selected) {
-                std::strncpy(selectedAddress, obs.address, 17);
-                selectedAddress[17] = '\0';
-            }
+        if (!device) return; BleObservation o; fillObservation(device, o); const uint32_t now = millis(); const bool scanResponse = o.advType == 4;
+        portENTER_CRITICAL(&reconMux); const bool same = std::strncmp(o.address, selectedAddress, 17) == 0; const SnifferState snap = snifferState; portEXIT_CRITICAL(&reconMux);
+        bool selected = same;
+        if (!selected && snap.initialized && now - snap.lastSeen > LOST_MS) {
+            HunterState h; h.target = snap.target; h.model.valid = snap.mutation.valid; h.model.len = snap.mutation.len; h.model.observations = snap.mutation.observations; if (h.model.valid) { std::memcpy(h.model.baseline, snap.mutation.baseline, MAX_PAYLOAD); for (size_t i = 0; i < MAX_PAYLOAD; i++) h.model.stable[i] = !snap.mutation.volatileMask[i]; }
+            selected = scoreCandidate(h, o, now - snap.lastSeen) >= HANDOFF_THRESHOLD;
+            if (selected) { portENTER_CRITICAL(&reconMux); std::strncpy(selectedAddress, o.address, 17); selectedAddress[17] = '\0'; portEXIT_CRITICAL(&reconMux); }
         }
-        portEXIT_CRITICAL(&reconMux);
         if (!selected) return;
-
         portENTER_CRITICAL(&reconMux);
-        updateMutation(snifferState.mutation, obs);
-        updateFcf1(snifferState.fcf1, obs, now);
-        snifferState.target = obs;
-        snifferState.packets++;
-        snifferState.lastSeenMs = now;
-        snifferState.initialized = true;
-        if (snifferState.rateWindowStartMs == 0) snifferState.rateWindowStartMs = now;
-        snifferState.rateWindowPackets++;
-        const uint32_t window = now - snifferState.rateWindowStartMs;
-        if (window >= 1000) {
-            snifferState.packetsPerSecond = snifferState.rateWindowPackets * 1000.0f / window;
-            snifferState.rateWindowStartMs = now;
-            snifferState.rateWindowPackets = 0;
+        if (!scanResponse) {
+            const uint32_t previousSeen = snifferState.lastSeen; updateMutation(snifferState.mutation, o); updateFcf1(snifferState.fcf1, o, now); snifferState.target = o; snifferState.packets++; snifferState.initialized = true;
+            if (previousSeen && now - previousSeen < 60000) { const uint32_t gap = now - previousSeen; snifferState.gapEma = snifferState.gapEma <= 0.1f ? gap : snifferState.gapEma + 0.18f * (gap - snifferState.gapEma); }
+            snifferState.lastSeen = now; if (!snifferState.rateStart) snifferState.rateStart = now; snifferState.ratePackets++; if (now - snifferState.rateStart >= 1000) { snifferState.pps = snifferState.ratePackets * 1000.0f / (now - snifferState.rateStart); snifferState.rateStart = now; snifferState.ratePackets = 0; }
         }
-        if (snifferState.lastSeenMs && snifferState.mutation.observations > 1) {
-            const uint32_t gap = now - snifferState.lastSeenMs;
-            if (gap < 60000) {
-                if (snifferState.gapEmaMs <= 0.1f) snifferState.gapEmaMs = gap;
-                else snifferState.gapEmaMs += 0.18f * (gap - snifferState.gapEmaMs);
-            }
-        }
-        snifferState.scanResponseLen = 0;
-        std::memset(snifferState.scanResponse, 0, sizeof(snifferState.scanResponse));
-        if (device->getAdvType() == 4 || (device->getPayload().size() > device->getAdvLength() && device->getAdvLength() > 0)) {
-            const std::vector<uint8_t> &payload = device->getPayload();
-            const size_t start = std::min<size_t>(device->getAdvLength(), payload.size());
-            if (start < payload.size()) {
-                const size_t len = std::min(payload.size() - start, MAX_SCAN_RESPONSE_BYTES);
-                std::memcpy(snifferState.scanResponse, payload.data() + start, len);
-                snifferState.scanResponseLen = len;
-                if (activeBurstCapture) snifferState.activeResponses++;
-            }
-        }
-        if (activeBurstCapture && device->isScannable()) snifferState.activeReports++;
-        portEXIT_CRITICAL(&reconMux);
+        const std::vector<uint8_t> &p = device->getPayload(); const size_t adv = std::min<size_t>(device->getAdvLength(), p.size()); if (scanResponse || (adv < p.size() && device->getAdvLength() > 0)) { const size_t start = scanResponse ? 0 : adv; const size_t n = std::min(p.size() - start, MAX_RESPONSE); std::memcpy(snifferState.response, p.data() + start, n); snifferState.responseLen = n; if (activeBurst) snifferState.activeResponses++; }
+        if (activeBurst && device->isScannable()) snifferState.activeReports++; portEXIT_CRITICAL(&reconMux);
     }
 };
-
 SnifferCallbacks snifferCallbacks;
+SnifferState snifferSnapshot() { SnifferState s; portENTER_CRITICAL(&reconMux); s = snifferState; portEXIT_CRITICAL(&reconMux); return s; }
+void resetSniffer(const BleObservation &o) { portENTER_CRITICAL(&reconMux); snifferState = SnifferState{}; snifferState.target = o; std::strncpy(selectedAddress, o.address, 17); selectedAddress[17] = '\0'; portEXIT_CRITICAL(&reconMux); }
+String mutationClass(const MutationModel &m) { if (!m.observations || !m.changes) return "NO MUTATION OBSERVED"; size_t vol = 0, ctr = 0; for (size_t i = 0; i < m.len; i++) { if (m.volatileMask[i]) vol++; if (m.counterHits[i] >= 2) ctr++; } if (ctr) return "COUNTER-LIKE FIELD(S) DETECTED"; return vol * 100 >= m.len * 60 ? "HIGH VOLATILITY / POSSIBLY ENCRYPTED" : "PARTIAL VOLATILITY / LIVE DATA"; }
 
-void resetSniffer(const BleObservation &target) {
-    portENTER_CRITICAL(&reconMux);
-    snifferState = SnifferState{};
-    snifferState.target = target;
-    snifferState.lastSeenMs = millis();
-    snifferState.initialized = false;
-    std::strncpy(selectedAddress, target.address, 17);
-    selectedAddress[17] = '\0';
-    portEXIT_CRITICAL(&reconMux);
-}
-
-SnifferState snifferSnapshot() {
-    SnifferState snapshot;
-    portENTER_CRITICAL(&reconMux);
-    snapshot = snifferState;
-    portEXIT_CRITICAL(&reconMux);
-    return snapshot;
-}
-
-void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool frozen) {
-    tft.fillScreen(bruceConfig.bgColor);
-    drawMainBorder(false);
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.setTextSize(FP);
-    const char *viewName = view == 0 ? "PLAIN" : (view == 1 ? "AD FIELDS" : (view == 2 ? "RAW" : (view == 3 ? "MUTATION" : "ACTIVE")));
-    tft.drawCentreString(String("BLE SNIFFER - ") + viewName, tftWidth / 2, 29, 1);
-    String identity = state.target.name[0] ? String(state.target.name) : String(state.target.address);
-    tft.drawCentreString(identity, tftWidth / 2, 42, 1);
-    const bool lost = state.initialized && millis() - state.lastSeenMs > LOST_TARGET_MS;
-    String status = !state.initialized ? "LISTENING..." : (lost ? "TARGET QUIET" : String(state.target.rssi) + " dBm  " + String(state.packets) + " pkt");
-    if (frozen) status = "FROZEN  " + status;
-    tft.setTextColor(lost ? TFT_RED : (frozen ? TFT_YELLOW : bruceConfig.priColor), bruceConfig.bgColor);
-    tft.drawCentreString(status, tftWidth / 2, 54, 1);
-
+void drawSniffer(const SnifferState &s, uint8_t view, size_t &scroll, bool frozen) {
+    tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.setTextSize(FP); const char *vn = view == 0 ? "PLAIN" : view == 1 ? "AD FIELDS" : view == 2 ? "RAW" : view == 3 ? "MUTATION" : "ACTIVE"; tft.drawCentreString(String("BLE SNIFFER - ") + vn, tftWidth / 2, 29, 1); tft.drawCentreString(s.target.name[0] ? String(s.target.name) : String(s.target.address), tftWidth / 2, 42, 1); const bool lost = s.initialized && millis() - s.lastSeen > LOST_MS; tft.setTextColor(lost ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor); tft.drawCentreString(lost ? "TARGET QUIET" : String(s.target.rssi) + " dBm  " + String(s.packets) + " pkt", tftWidth / 2, 54, 1);
     std::vector<String> lines;
-    if (view == 0) {
-        appendWrapped(lines, state.target.name[0] ? String(state.target.name) : "Unnamed BLE device");
-        appendWrapped(lines, "Address: " + String(state.target.address));
-        appendWrapped(lines, "Address type: " + addressTypeName(state.target));
-        appendWrapped(lines, state.connectable ? "Connectable" : "Not advertising connectable");
-        appendWrapped(lines, state.target.scannable ? "Scannable" : "Non-scannable");
-        appendWrapped(lines, signalMeaning(state.target.rssi) + " (" + String(state.target.rssi) + " dBm)");
-        appendWrapped(lines, "Company: " + String(companyName(state.target.companyId) ? companyName(state.target.companyId) : "Unlisted") +
-                               " 0x" + String(state.target.companyId, HEX));
-        if (state.target.hasAppearance) appendWrapped(lines, "Appearance: " + appearanceName(state.target.appearance));
-        if (state.target.hasTxPower) appendWrapped(lines, "TX power: " + String(state.target.txPower) + " dBm");
-        appendWrapped(lines, "Payload: " + String(state.target.payloadLen) + " bytes");
+    if (view == 0) { appendWrapped(lines, "Address: " + String(s.target.address)); appendWrapped(lines, "Type: " + addressTypeName(s.target)); appendWrapped(lines, s.target.connectable ? "Connectable" : "Not connectable"); appendWrapped(lines, s.target.scannable ? "Scannable" : "Non-scannable"); appendWrapped(lines, "Company: " + String(companyName(s.target.companyId) ? companyName(s.target.companyId) : "Unlisted") + " 0x" + String(s.target.companyId, HEX)); appendWrapped(lines, "Payload: " + String(s.target.payloadLen) + " bytes"); appendWrapped(lines, "Rate: " + String(s.pps, 1) + "/s  gap " + String(s.gapEma, 0) + "ms"); if (s.target.hasAppearance) appendWrapped(lines, "Appearance: " + appearanceName(s.target.appearance)); if (s.fcf1.seen) appendWrapped(lines, "Google Service (FCF1) DETECTED");
 #ifdef BLE_RECON_EXT_ADV
-        appendWrapped(lines, state.target.legacy ? "Legacy advertising" : "Extended advertising");
-        if (!state.target.legacy) {
-            appendWrapped(lines, "SID " + String(state.target.sid) + "  PHY " + String(state.target.primaryPhy) + "/" + String(state.target.secondaryPhy));
-            appendWrapped(lines, "Data status " + String(state.target.dataStatus));
-            appendWrapped(lines, state.target.periodicInterval ? "Periodic interval: " + String(state.target.periodicInterval) + " units" : "No periodic interval advertised");
-        }
+        appendWrapped(lines, s.target.legacy ? "Legacy advertising" : "Extended advertising"); if (!s.target.legacy) { appendWrapped(lines, "SID " + String(s.target.sid) + " PHY " + String(s.target.primaryPhy) + "/" + String(s.target.secondaryPhy)); appendWrapped(lines, "Data status " + String(s.target.dataStatus)); appendWrapped(lines, s.target.periodicInterval ? "Periodic interval: " + String(s.target.periodicInterval) + " units" : "No periodic interval advertised"); }
 #endif
-        if (state.fcf1.seen) appendWrapped(lines, "Google Service (FCF1) detected");
-    } else if (view == 1) {
-        parseAdFields(state.target.payload, state.target.payloadLen, &lines, nullptr);
-        if (state.target.scanResponseLen) {
-            appendWrapped(lines, "SCAN RESPONSE");
-            parseAdFields(state.target.scanResponse, state.target.scanResponseLen, &lines, nullptr);
-        }
-    } else if (view == 2) {
-        appendWrapped(lines, "ADV PAYLOAD " + String(state.target.payloadLen) + " bytes");
-        for (size_t i = 0; i < state.target.payloadLen; i += 8)
-            lines.push_back(String(i, HEX) + ": " + hexBytes(state.target.payload + i, std::min<size_t>(8, state.target.payloadLen - i), 8, true));
-        if (state.target.scanResponseLen) {
-            appendWrapped(lines, "SCAN RESPONSE " + String(state.target.scanResponseLen) + " bytes");
-            for (size_t i = 0; i < state.target.scanResponseLen; i += 8)
-                lines.push_back(String(i, HEX) + ": " + hexBytes(state.target.scanResponse + i, std::min<size_t>(8, state.target.scanResponseLen - i), 8, true));
-        }
-    } else if (view == 3) {
-        appendWrapped(lines, mutationClass(state.mutation));
-        appendWrapped(lines, "Observations: " + String(state.mutation.observations));
-        appendWrapped(lines, "Payload changes: " + String(state.mutation.changes));
-        appendWrapped(lines, "Last changed bytes: " + String(state.mutation.lastChangedBytes));
-        size_t stable = 0, volatileBytes = 0, counters = 0;
-        for (size_t i = 0; i < state.mutation.baselineLen; i++) {
-            if (state.mutation.volatileMask[i]) volatileBytes++; else stable++;
-            if (state.mutation.counterHits[i] >= 2) counters++;
-        }
-        appendWrapped(lines, "Stable: " + String(stable) + "  Volatile: " + String(volatileBytes) + "  Counter-like: " + String(counters));
-        appendWrapped(lines, "Last diff offsets: " + hexBytes(state.mutation.lastDiff, state.mutation.lastDiffLen, 48, true));
-        if (state.fcf1.seen) {
-            appendWrapped(lines, "--- GOOGLE FCF1 ---");
-            appendWrapped(lines, "Payload: " + String(state.fcf1.len) + " bytes");
-            appendWrapped(lines, hexBytes(state.fcf1.payload, state.fcf1.len, 32, true));
-            appendWrapped(lines, "First seen: " + String(state.fcf1.firstSeenMs / 1000) + "s");
-            appendWrapped(lines, "Last seen: " + String(state.fcf1.lastSeenMs / 1000) + "s");
-            appendWrapped(lines, "Count: " + String(state.fcf1.count));
-            appendWrapped(lines, "MAC changes: " + String(state.fcf1.macChanges) + "  Payload changes: " + String(state.fcf1.payloadChanges));
-            appendWrapped(lines, "Correlated MAC+payload: " + String(state.fcf1.correlatedChanges));
-            appendWrapped(lines, "MAC-only: " + String(state.fcf1.macOnlyChanges) + "  Payload-only: " + String(state.fcf1.payloadOnlyChanges));
-            appendWrapped(lines, "Current: " + String(state.fcf1.currentAddress) + " " + String(addressTypeName(state.fcf1.addressType == 0 ? state.target : state.target)));
-        }
-    } else {
-        appendWrapped(lines, state.activeComplete ? "Active scan complete" : "No active scan performed");
-        appendWrapped(lines, "Active bursts: " + String(state.activeBursts));
-        appendWrapped(lines, "Scannable reports: " + String(state.activeReports));
-        appendWrapped(lines, "Scan responses: " + String(state.activeResponses));
-        if (state.scanResponseLen) {
-            appendWrapped(lines, "Response: " + String(state.scanResponseLen) + " bytes");
-            parseAdFields(state.scanResponse, state.scanResponseLen, &lines, nullptr);
-        } else appendWrapped(lines, "No scan-response payload captured");
-    }
-
-    const int lineHeight = 12, firstY = 69, footerY = tftHeight - 19;
-    const int visible = (footerY - firstY) / lineHeight;
-    if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1;
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    for (int row = 0; row < visible && scroll + row < lines.size(); row++) tft.drawString(lines[scroll + row], 8, firstY + row * lineHeight, 1);
-    if (scroll) tft.drawRightString("^", tftWidth - 7, firstY, 1);
-    if (scroll + visible < lines.size()) tft.drawRightString("v", tftWidth - 7, footerY - lineHeight, 1);
-    tft.drawCentreString("Turn scroll  Hold actions", tftWidth / 2, footerY, 1);
-    drawStatusBar();
+    } else if (view == 1) { parseAdFields(s.target.payload, s.target.payloadLen, &lines, nullptr); if (s.responseLen) { appendWrapped(lines, "SCAN RESPONSE"); parseAdFields(s.response, s.responseLen, &lines, nullptr); } }
+    else if (view == 2) { appendWrapped(lines, "ADV PAYLOAD"); for (size_t i = 0; i < s.target.payloadLen; i += 8) lines.push_back(String(i, HEX) + ": " + hexBytes(s.target.payload + i, std::min<size_t>(8, s.target.payloadLen - i), 8, true)); if (s.responseLen) { appendWrapped(lines, "SCAN RESPONSE"); for (size_t i = 0; i < s.responseLen; i += 8) lines.push_back(String(i, HEX) + ": " + hexBytes(s.response + i, std::min<size_t>(8, s.responseLen - i), 8, true)); } }
+    else if (view == 3) { appendWrapped(lines, mutationClass(s.mutation)); appendWrapped(lines, "Observations: " + String(s.mutation.observations)); appendWrapped(lines, "Payload changes: " + String(s.mutation.changes)); appendWrapped(lines, "Last changed bytes: " + String(s.mutation.lastChanged)); appendWrapped(lines, "Last diff offsets: " + hexBytes(s.mutation.lastDiff, s.mutation.lastDiffLen, 48, true)); size_t stable = 0, vol = 0, ctr = 0; for (size_t i = 0; i < s.mutation.len; i++) { if (s.mutation.volatileMask[i]) vol++; else stable++; if (s.mutation.counterHits[i] >= 2) ctr++; } appendWrapped(lines, "Stable " + String(stable) + "  Volatile " + String(vol) + "  Counter-like " + String(ctr)); if (s.fcf1.seen) { appendWrapped(lines, "--- GOOGLE SERVICE (FCF1) ---"); appendWrapped(lines, "Payload " + String(s.fcf1.len) + " bytes: " + hexBytes(s.fcf1.payload, s.fcf1.len, 32, true)); appendWrapped(lines, "First " + String(s.fcf1.firstSeen / 1000) + "s  Last " + String(s.fcf1.lastSeen / 1000) + "s  Count " + String(s.fcf1.count)); appendWrapped(lines, "MAC changes " + String(s.fcf1.macChanges) + "  Payload changes " + String(s.fcf1.payloadChanges)); appendWrapped(lines, "Correlated MAC+payload " + String(s.fcf1.correlated)); appendWrapped(lines, "MAC-only " + String(s.fcf1.macOnly) + "  Payload-only " + String(s.fcf1.payloadOnly)); appendWrapped(lines, "Current " + String(s.fcf1.currentAddress) + " " + addressTypeName(s.fcf1.addressType, s.fcf1.currentAddress)); if (s.fcf1.previousAddress[0]) appendWrapped(lines, "Previous " + String(s.fcf1.previousAddress)); } }
+    else { appendWrapped(lines, s.activeComplete ? "Active scan complete" : "No active scan performed"); appendWrapped(lines, "Bursts " + String(s.activeBursts) + "  Scannable reports " + String(s.activeReports)); appendWrapped(lines, "Scan responses " + String(s.activeResponses)); if (s.responseLen) parseAdFields(s.response, s.responseLen, &lines, nullptr); }
+    const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12; if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1; for (int r = 0; r < visible && scroll + r < lines.size(); r++) tft.drawString(lines[scroll + r], 8, first + r * 12, 1); if (scroll) tft.drawRightString("^", tftWidth - 7, first, 1); if (scroll + visible < lines.size()) tft.drawRightString("v", tftWidth - 7, footer - 12, 1); tft.drawCentreString("Turn scroll  Hold actions", tftWidth / 2, footer, 1); drawStatusBar();
 }
 
-bool confirmAction(const String &title, const std::vector<String> &messages) {
-    const uint32_t opened = millis();
-    while (true) {
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-        tft.drawCentreString(title, tftWidth / 2, 31, 1);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        int y = 54;
-        for (const String &message : messages) { tft.drawCentreString(message, tftWidth / 2, y, 1); y += 15; }
-        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-        tft.drawCentreString("Select: continue  Esc: cancel", tftWidth / 2, tftHeight - 21, 1);
-        drawStatusBar();
-        if (check(EscPress)) return false;
-        if (millis() - opened > 650 && check(SelPress)) return true;
-        delay(25);
-    }
+bool confirmAction(const String &title, const std::vector<String> &messages) { const uint32_t start = millis(); while (true) { tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor); tft.drawCentreString(title, tftWidth / 2, 31, 1); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); int y = 54; for (const String &m : messages) { tft.drawCentreString(m, tftWidth / 2, y, 1); y += 15; } tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor); tft.drawCentreString("Select: continue  Esc: cancel", tftWidth / 2, tftHeight - 21, 1); drawStatusBar(); if (check(EscPress)) return false; if (millis() - start > 650 && check(SelPress)) return true; delay(25); } }
+bool startPassiveSniffer() { if (!pBLEScan) return false; pBLEScan->stop(); pBLEScan->clearResults(); pBLEScan->setActiveScan(false); pBLEScan->setInterval(SCAN_INT); pBLEScan->setWindow(SCAN_WINDOW); pBLEScan->setMaxResults(0); pBLEScan->setScanCallbacks(&snifferCallbacks, true); return pBLEScan->start(0, false, true); }
+void runActiveScan() {
+    if (!confirmAction("ACTIVE SCAN - TRANSMITS", {"3-second scan-request burst", "Nearby scannable devices may receive requests", "No BLE connection is made"})) return; pBLEScan->stop(); pBLEScan->clearResults(); portENTER_CRITICAL(&reconMux); snifferState.activeBursts++; snifferState.activeReports = 0; snifferState.activeResponses = 0; snifferState.responseLen = 0; activeBurst = true; portEXIT_CRITICAL(&reconMux);
+    pBLEScan->setActiveScan(true); pBLEScan->setInterval(SCAN_INT); pBLEScan->setWindow(SCAN_WINDOW); pBLEScan->setMaxResults(0); pBLEScan->setScanCallbacks(&snifferCallbacks, true); pBLEScan->start(0, false, true); const uint32_t start = millis(); while (millis() - start < 3000) { tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(TFT_RED, bruceConfig.bgColor); tft.drawCentreString("ACTIVE - TRANSMITTING", tftWidth / 2, 40, 1); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.drawCentreString("BLE scan requests are on air", tftWidth / 2, 65, 1); tft.drawCentreString("Esc stops burst early", tftWidth / 2, tftHeight - 21, 1); drawStatusBar(); if (check(EscPress)) break; delay(80); }
+    pBLEScan->stop(); portENTER_CRITICAL(&reconMux); activeBurst = false; snifferState.activeComplete = true; portEXIT_CRITICAL(&reconMux); startPassiveSniffer();
 }
-
-bool startPassiveSnifferScan() {
-    if (!pBLEScan) return false;
-    pBLEScan->stop();
-    pBLEScan->clearResults();
-    pBLEScan->setActiveScan(false);
-    pBLEScan->setInterval(SCAN_INT);
-    pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(0);
-    pBLEScan->setScanCallbacks(&snifferCallbacks, true);
-    return pBLEScan->start(0, false, true);
-}
-
-void runActiveScan(SnifferState &state) {
-    if (!confirmAction("ACTIVE SCAN - TRANSMITS", {"3-second scan-request burst", "Nearby scannable devices may receive requests", "No BLE connection is made"})) return;
-    pBLEScan->stop();
-    pBLEScan->clearResults();
-    portENTER_CRITICAL(&reconMux);
-    state.scanResponseLen = 0;
-    state.activeReports = 0;
-    state.activeResponses = 0;
-    state.activeBursts++;
-    activeBurstCapture = true;
-    portEXIT_CRITICAL(&reconMux);
-
-    // This is deliberately true: active scan actually sends scan requests.
-    pBLEScan->setActiveScan(true);
-    pBLEScan->setInterval(SCAN_INT);
-    pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(0);
-    pBLEScan->setScanCallbacks(&snifferCallbacks, true);
-    const uint32_t start = millis();
-    pBLEScan->start(0, false, true);
-    while (millis() - start < 3000) {
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(TFT_RED, bruceConfig.bgColor);
-        tft.drawCentreString("ACTIVE - TRANSMITTING", tftWidth / 2, 40, 1);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString("BLE scan requests are on air", tftWidth / 2, 65, 1);
-        tft.drawCentreString("Esc stops burst early", tftWidth / 2, tftHeight - 21, 1);
-        drawStatusBar();
-        if (check(EscPress)) break;
-        delay(80);
-    }
-    pBLEScan->stop();
-    portENTER_CRITICAL(&reconMux);
-    activeBurstCapture = false;
-    state.activeComplete = true;
-    portEXIT_CRITICAL(&reconMux);
-    startPassiveSnifferScan();
-}
-
-String characteristicProperties(const NimBLERemoteCharacteristic *characteristic) {
-    String properties;
-    if (characteristic->canRead()) properties += "R ";
-    if (characteristic->canWrite()) properties += "W ";
-    if (characteristic->canWriteNoResponse()) properties += "WNR ";
-    if (characteristic->canNotify()) properties += "N ";
-    if (characteristic->canIndicate()) properties += "I ";
-    properties.trim();
-    return properties.isEmpty() ? "none declared" : properties;
-}
-
+String characteristicProperties(const NimBLERemoteCharacteristic *c) { String p; if (c->canRead()) p += "R "; if (c->canWrite()) p += "W "; if (c->canWriteNoResponse()) p += "WNR "; if (c->canNotify()) p += "N "; if (c->canIndicate()) p += "I "; p.trim(); return p.isEmpty() ? "none" : p; }
 GattResult enumerateGatt(const BleObservation &target) {
-    GattResult result;
-    pBLEScan->stop();
-    pBLEScan->setScanCallbacks(nullptr, false);
-    pBLEScan->clearResults();
-    displayTextLine("Connecting for GATT map...");
-    NimBLEClient *client = NimBLEDevice::createClient();
-    if (!client) { result.error = "Could not create BLE client"; return result; }
-    client->setConnectTimeout(8000);
-    client->setConnectRetries(0);
-    client->setConnectionParams(12, 24, 0, 400);
-    NimBLEAddress peer(std::string(target.address), target.addressType);
-    if (!client->connect(peer, true, false, false)) {
-        result.error = "Connection failed (error " + String(client->getLastError()) + ")";
-        NimBLEDevice::deleteClient(client);
-        return result;
-    }
-    result.connected = true;
-    if (!client->discoverAttributes()) {
-        result.error = "GATT discovery failed (error " + String(client->getLastError()) + ")";
-    } else {
-        result.discovered = true;
-        const auto &services = client->getServices(false);
-        for (const NimBLERemoteService *service : services) {
-            if (!service) continue;
-            result.services++;
-            const String uuid(service->getUUID().toString().c_str());
-            uint16_t shortUuid = 0;
-            String label = uuid;
-            if (uuid.length() == 36 && uuid.substring(0, 4) == "0000" && uuid.substring(8) == "-0000-1000-8000-00805f9b34fb") {
-                shortUuid = static_cast<uint16_t>(strtoul(uuid.substring(4, 8).c_str(), nullptr, 16));
-                label = uuid16Label(shortUuid);
-            }
-            result.serviceSummaries.push_back(label);
-            if (result.technicalLines.size() < MAX_GATT_LINES) result.technicalLines.push_back("SERVICE " + label);
-            const auto &characteristics = service->getCharacteristics(false);
-            for (const NimBLERemoteCharacteristic *characteristic : characteristics) {
-                if (!characteristic) continue;
-                result.characteristics++;
-                if (characteristic->canRead()) result.readable++;
-                if (characteristic->canWrite() || characteristic->canWriteNoResponse()) result.writable++;
-                if (characteristic->canNotify()) result.notifiable++;
-                if (characteristic->canIndicate()) result.indicatable++;
-                const String cuuid(characteristic->getUUID().toString().c_str());
-                uint16_t cshort = 0;
-                String clabel = cuuid;
-                if (cuuid.length() == 36 && cuuid.substring(0, 4) == "0000" && cuuid.substring(8) == "-0000-1000-8000-00805f9b34fb") {
-                    cshort = static_cast<uint16_t>(strtoul(cuuid.substring(4, 8).c_str(), nullptr, 16));
-                    if (const char *known = characteristicName(cshort)) clabel = "0x" + String(cshort, HEX) + " " + String(known);
-                }
-                if (result.technicalLines.size() < MAX_GATT_LINES) {
-                    result.technicalLines.push_back("  CHAR " + clabel);
-                    result.technicalLines.push_back("    PROPS " + characteristicProperties(characteristic));
-                } else result.truncated = true;
-                const auto &descriptors = characteristic->getDescriptors(false);
-                for (const NimBLERemoteDescriptor *descriptor : descriptors) {
-                    if (!descriptor) continue;
-                    result.descriptors++;
-                    if (result.technicalLines.size() < MAX_GATT_LINES) result.technicalLines.push_back("    DESC " + String(descriptor->getUUID().toString().c_str()));
-                    else result.truncated = true;
-                }
-            }
-        }
-    }
-    if (client->isConnected()) client->disconnect();
-    delay(80);
-    NimBLEDevice::deleteClient(client);
-    return result;
+    GattResult r; pBLEScan->stop(); pBLEScan->setScanCallbacks(nullptr, false); pBLEScan->clearResults(); displayTextLine("Connecting for GATT map..."); NimBLEClient *client = NimBLEDevice::createClient(); if (!client) { r.error = "Could not create BLE client"; return r; } client->setConnectTimeout(8000); client->setConnectRetries(0); client->setConnectionParams(12, 24, 0, 400); NimBLEAddress peer(std::string(target.address), target.addressType);
+    if (!client->connect(peer, true, false, false)) { r.error = "Connection failed (error " + String(client->getLastError()) + ")"; NimBLEDevice::deleteClient(client); return r; } r.connected = true;
+    if (!client->discoverAttributes()) r.error = "GATT discovery failed (error " + String(client->getLastError()) + ")"; else { r.discovered = true; const auto &services = client->getServices(false); for (const NimBLERemoteService *s : services) { if (!s) continue; r.services++; const String u(s->getUUID().toString().c_str()); r.serviceLines.push_back(u); if (r.tree.size() < MAX_GATT_LINES) r.tree.push_back("SERVICE " + u); const auto &chars = s->getCharacteristics(false); for (const NimBLERemoteCharacteristic *c : chars) { if (!c) continue; r.characteristics++; if (c->canRead()) r.readable++; if (c->canWrite() || c->canWriteNoResponse()) r.writable++; if (c->canNotify()) r.notify++; if (c->canIndicate()) r.indicate++; const String cu(c->getUUID().toString().c_str()); if (r.tree.size() < MAX_GATT_LINES) { r.tree.push_back("  CHAR " + cu); r.tree.push_back("    PROPS " + characteristicProperties(c)); } else r.truncated = true; const auto &ds = c->getDescriptors(false); for (const NimBLERemoteDescriptor *d : ds) { if (!d) continue; r.descriptors++; if (r.tree.size() < MAX_GATT_LINES) r.tree.push_back("    DESC " + String(d->getUUID().toString().c_str())); else r.truncated = true; } } } }
+    if (client->isConnected()) client->disconnect(); delay(80); NimBLEDevice::deleteClient(client); return r;
 }
-
-void showGatt(const GattResult &result, const String &identity) {
-    bool technical = false;
-    size_t scroll = 0;
-    while (!check(EscPress)) {
-        std::vector<String> lines;
-        if (!result.connected) appendWrapped(lines, result.error.isEmpty() ? "Connection failed" : result.error);
-        else if (!result.discovered) appendWrapped(lines, result.error.isEmpty() ? "GATT discovery failed" : result.error);
-        else {
-            appendWrapped(lines, technical ? "STRUCTURE ONLY - NO VALUES READ" : "GATT structure mapped; disconnected");
-            appendWrapped(lines, String(result.services) + " services  " + String(result.characteristics) + " chars  " + String(result.descriptors) + " desc");
-            appendWrapped(lines, String(result.readable) + " readable  " + String(result.writable) + " writable");
-            appendWrapped(lines, String(result.notifiable) + " notify  " + String(result.indicatable) + " indicate");
-            if (technical) for (const String &line : result.technicalLines) lines.push_back(line);
-            else for (const String &service : result.serviceSummaries) appendWrapped(lines, "Service: " + service);
-            if (result.truncated) appendWrapped(lines, "Technical tree truncated for memory safety");
-        }
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString(technical ? "GATT TECHNICAL" : "GATT PLAIN", tftWidth / 2, 29, 1);
-        tft.drawCentreString(identity, tftWidth / 2, 42, 1);
-        tft.setTextColor(TFT_GREEN, bruceConfig.bgColor);
-        tft.drawCentreString("DISCONNECTED - NO VALUES", tftWidth / 2, 54, 1);
-        const int firstY = 69, footerY = tftHeight - 19, visible = (footerY - firstY) / 12;
-        if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1;
-        for (int row = 0; row < visible && scroll + row < lines.size(); row++) tft.drawString(lines[scroll + row], 8, firstY + row * 12, 1);
-        if (check(PrevPress) && scroll) scroll--;
-        if (check(NextPress)) scroll++;
-        if (check(SelPress)) { technical = !technical; scroll = 0; delay(100); }
-        tft.drawCentreString("Turn scroll  Select plain/tree  Esc", tftWidth / 2, footerY, 1);
-        drawStatusBar();
-        delay(20);
-    }
-}
+void showGatt(const GattResult &r, const String &identity) { bool tech = false; size_t scroll = 0; while (!check(EscPress)) { std::vector<String> lines; if (!r.connected) appendWrapped(lines, r.error.isEmpty() ? "Connection failed" : r.error); else if (!r.discovered) appendWrapped(lines, r.error.isEmpty() ? "GATT discovery failed" : r.error); else { appendWrapped(lines, tech ? "STRUCTURE ONLY - NO VALUES READ" : "GATT mapped; disconnected"); appendWrapped(lines, String(r.services) + " services  " + String(r.characteristics) + " chars  " + String(r.descriptors) + " desc"); appendWrapped(lines, String(r.readable) + " readable  " + String(r.writable) + " writable"); appendWrapped(lines, String(r.notify) + " notify  " + String(r.indicate) + " indicate"); if (tech) for (const String &x : r.tree) lines.push_back(x); else for (const String &x : r.serviceLines) appendWrapped(lines, "Service: " + x); if (r.truncated) appendWrapped(lines, "Technical tree truncated"); } tft.fillScreen(bruceConfig.bgColor); drawMainBorder(false); tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor); tft.drawCentreString(tech ? "GATT TECHNICAL" : "GATT PLAIN", tftWidth / 2, 29, 1); tft.drawCentreString(identity, tftWidth / 2, 42, 1); tft.setTextColor(TFT_GREEN, bruceConfig.bgColor); tft.drawCentreString("DISCONNECTED - NO VALUES", tftWidth / 2, 54, 1); const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12; if (scroll >= lines.size()) scroll = lines.empty() ? 0 : lines.size() - 1; for (int row = 0; row < visible && scroll + row < lines.size(); row++) tft.drawString(lines[scroll + row], 8, first + row * 12, 1); if (check(PrevPress) && scroll) scroll--; if (check(NextPress)) scroll++; if (check(SelPress)) { tech = !tech; scroll = 0; delay(100); } tft.drawCentreString("Turn scroll  Select tree  Esc", tftWidth / 2, footer, 1); drawStatusBar(); delay(20); } }
 
 void sniffTarget(const BleObservation &target) {
-    ble_scan_setup();
-    if (!pBLEScan) { displayError("BLE scanner unavailable", true); return; }
-    resetSniffer(target);
-    if (!startPassiveSnifferScan()) { stopBLEStack(); displayError("Unable to start BLE scan", true); return; }
-    uint8_t view = 0;
-    size_t scroll = 0;
-    bool frozen = false;
-    SnifferState frozenState;
-    uint32_t lastDraw = 0;
+    ble_scan_setup(); if (!pBLEScan) { displayError("BLE scanner unavailable", true); return; } resetSniffer(target); if (!startPassiveSniffer()) { stopBLEStack(); displayError("Unable to start BLE scan", true); return; }
+    uint8_t view = 0; size_t scroll = 0; bool frozen = false; SnifferState frozenState; uint32_t draw = 0;
     while (!check(EscPress)) {
-        if (check(PrevPress)) { if (scroll) scroll--; else view = (view + 4) % 5; }
-        if (check(NextPress)) { scroll++; }
-        if (check(LongPress) || check(SelPress)) {
-            const bool action = confirmAction("SNIFFER ACTIONS", {"Active scan / GATT map / freeze", "Active scan transmits scan requests", "GATT connects only after confirmation"});
-            if (action) {
-                std::vector<Option> actions;
-                int selected = -1;
-                actions.emplace_back("Active scan request (3s)", [&selected]() { selected = 0; });
-                actions.emplace_back("Connect + map GATT", [&selected]() { selected = 1; });
-                actions.emplace_back("Next view", [&selected]() { selected = 2; });
-                actions.emplace_back(frozen ? "Unfreeze frame" : "Freeze frame", [&selected]() { selected = 3; });
-                loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
-                if (selected == 0) { frozen = false; SnifferState state = snifferSnapshot(); runActiveScan(state); }
-                else if (selected == 1) {
-                    frozen = false;
-                    const SnifferState state = snifferSnapshot();
-                    if (!state.target.connectable) displayWarning("Target is not advertising connectable", true);
-                    else if (confirmAction("CONNECT + MAP GATT", {"Target will see a connection", "Structure discovery only", "NO READS / WRITES / SUBSCRIPTIONS"})) {
-                        const GattResult result = enumerateGatt(state.target);
-                        showGatt(result, state.target.name[0] ? String(state.target.name) : String(state.target.address));
-                        startPassiveSnifferScan();
-                    }
-                } else if (selected == 2) { view = (view + 1) % 5; scroll = 0; }
-                else if (selected == 3) { frozen = !frozen; if (frozen) frozenState = snifferSnapshot(); }
-            }
-            scroll = 0;
-            delay(100);
-        }
-        if (millis() - lastDraw >= (frozen ? 1000 : 300)) {
-            const SnifferState state = frozen ? frozenState : snifferSnapshot();
-            drawSniffer(state, view, scroll, frozen);
-            lastDraw = millis();
-        }
-        delay(10);
+        if (check(PrevPress)) { if (scroll) scroll--; else view = (view + 4) % 5; } if (check(NextPress)) scroll++;
+        if (check(LongPress) || check(SelPress)) { std::vector<Option> actions; int chosen = -1; actions.emplace_back("Active scan request (3s)", [&chosen]() { chosen = 0; }); actions.emplace_back("Connect + map GATT", [&chosen]() { chosen = 1; }); actions.emplace_back("Next view", [&chosen]() { chosen = 2; }); actions.emplace_back(frozen ? "Unfreeze frame" : "Freeze frame", [&chosen]() { chosen = 3; }); loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
+            if (chosen == 0) { frozen = false; runActiveScan(); view = 4; scroll = 0; } else if (chosen == 1) { frozen = false; const SnifferState s = snifferSnapshot(); if (!s.target.connectable) displayWarning("Target is not advertising connectable", true); else if (confirmAction("CONNECT + MAP GATT", {"Target will see a connection", "Structure discovery only", "NO READS / WRITES / SUBSCRIPTIONS"})) { const GattResult r = enumerateGatt(s.target); showGatt(r, s.target.name[0] ? String(s.target.name) : String(s.target.address)); startPassiveSniffer(); } } else if (chosen == 2) { view = (view + 1) % 5; scroll = 0; } else if (chosen == 3) { frozen = !frozen; if (frozen) frozenState = snifferSnapshot(); } delay(100); }
+        if (millis() - draw >= (frozen ? 1000 : 300)) { drawSniffer(frozen ? frozenState : snifferSnapshot(), view, scroll, frozen); draw = millis(); } delay(10);
     }
-    pBLEScan->stop();
-    pBLEScan->setScanCallbacks(nullptr, false);
-    pBLEScan->setMaxResults(0xFF);
-    pBLEScan->clearResults();
-    stopBLEStack();
+    pBLEScan->stop(); pBLEScan->setScanCallbacks(nullptr, false); pBLEScan->setMaxResults(0xFF); pBLEScan->clearResults(); stopBLEStack();
 }
 
 } // namespace
 
 void bleHunterV3() {
-    std::vector<BleObservation> targets = discoverObservations(false);
-    if (targets.empty()) { displayWarning("No BLE advertisers found", true); stopBLEStack(); return; }
-    options.clear();
-    const size_t count = std::min<size_t>(targets.size(), 60);
-    for (size_t i = 0; i < count; i++) {
-        const BleObservation target = targets[i];
-        String label = target.name[0] ? String(target.name) : String(target.address);
-        if (target.name[0]) label += " [" + String(target.address).substring(12) + "]";
-        label += " " + String(target.rssi);
-        options.emplace_back(label, [target]() { huntTarget(target); });
-    }
-    addOptionToMainMenu();
-    loopOptions(options, MENU_TYPE_REGULAR, "BLE Hunter target", 0, false);
-    options.clear();
-    stopBLEStack();
+    const std::vector<BleObservation> targets = discoverTargets(false); if (targets.empty()) { displayWarning("No BLE advertisers found", true); stopBLEStack(); return; } options.clear();
+    for (size_t i = 0; i < std::min<size_t>(targets.size(), 60); i++) { const BleObservation target = targets[i]; String label = target.name[0] ? String(target.name) : String(target.address); if (target.name[0]) label += " [" + String(target.address).substring(12) + "]"; label += " " + String(target.rssi); options.emplace_back(label, [target]() { huntTarget(target); }); }
+    addOptionToMainMenu(); loopOptions(options, MENU_TYPE_REGULAR, "BLE Hunter target", 0, false); options.clear(); stopBLEStack();
 }
-
 void bleSnifferV3() {
-    std::vector<BleObservation> targets = discoverObservations(true);
-    if (targets.empty()) { displayWarning("No BLE advertisers found", true); stopBLEStack(); return; }
-    options.clear();
-    const size_t count = std::min<size_t>(targets.size(), 60);
-    for (size_t i = 0; i < count; i++) {
-        const BleObservation target = targets[i];
-        String label = target.name[0] ? String(target.name) : String(target.address);
-        if (target.name[0]) label += " [" + String(target.address).substring(12) + "]";
-        label += " " + String(target.rssi);
-        options.emplace_back(label, [target]() { sniffTarget(target); });
-    }
-    addOptionToMainMenu();
-    loopOptions(options, MENU_TYPE_REGULAR, "BLE Sniffer target", 0, false);
-    options.clear();
-    stopBLEStack();
+    const std::vector<BleObservation> targets = discoverTargets(true); if (targets.empty()) { displayWarning("No BLE advertisers found", true); stopBLEStack(); return; } options.clear();
+    for (size_t i = 0; i < std::min<size_t>(targets.size(), 60); i++) { const BleObservation target = targets[i]; String label = target.name[0] ? String(target.name) : String(target.address); if (target.name[0]) label += " [" + String(target.address).substring(12) + "]"; label += " " + String(target.rssi); options.emplace_back(label, [target]() { sniffTarget(target); }); }
+    addOptionToMainMenu(); loopOptions(options, MENU_TYPE_REGULAR, "BLE Sniffer target", 0, false); options.clear(); stopBLEStack();
 }
