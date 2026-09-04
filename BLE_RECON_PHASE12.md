@@ -33,4 +33,6 @@ CI targets exactly:
 - ES3C28P 2.8in Cheap Black Display
 - LilyGO T-Embed CC1101 Plus
 
+CI also enables NimBLE extended advertising with `MYNEWT_VAL_BLE_EXT_ADV=1` while keeping the normal global Bruce build flags intact.
+
 Artifacts are named `Launcher-*.bin` and are intended to be installed through bmorcelli's Launcher, which preserves the Launcher/bootloader/partition-table boundary by extracting the application image from the merged artifact.
