@@ -62,9 +62,9 @@ jobs:
           if old not in s:
               raise SystemExit("Could not find BRUCE_VERSION build flag")
           s = s.replace(old, new, 1)
-          anchor = "\t-DBRUCE_VERSION='\"1.12.4\"'\n"
           ext = "\t-DMYNEWT_VAL_BLE_EXT_ADV=1\n"
           if ext not in s:
+              anchor = new + "\n"
               if anchor not in s:
                   raise SystemExit("Could not find BRUCE_VERSION anchor")
               s = s.replace(anchor, anchor + ext, 1)
