@@ -75,7 +75,9 @@ jobs:
           PY
 
       - name: Build firmware
-        run: platformio run -e "${{ matrix.env }}"
+        run: |
+          set -o pipefail
+          platformio run -e "${{ matrix.env }}" 2>&1 | tee "build-${{ matrix.env }}.log"
 
       - name: Build Launcher-only image
         run: |
@@ -90,8 +92,8 @@ jobs:
           partitions = Path(f".pio/build/{env}/partitions.bin").read_bytes()
           app = Path(f".pio/build/{env}/firmware.bin").read_bytes()
 
-          # bmorcelli Launcher format: keep the partition table at 0x8000
-          # and the Bruce application at 0x10000. Do NOT include bootloader.bin.
+          # bmorcelli Launcher format: partition table at 0x8000 and app at 0x10000.
+          # Deliberately omit bootloader.bin so Launcher can replace only the Bruce app.
           app_offset = 0x10000
           partition_offset = 0x8000
           image_size = app_offset + len(app)
@@ -103,7 +105,7 @@ jobs:
           print(f"Launcher-only image: {out} ({len(image)} bytes)")
           print(f"Partition table: {len(partitions)} bytes @ 0x{partition_offset:X}")
           print(f"Application: {len(app)} bytes @ 0x{app_offset:X}")
-          print(f"Bootloader included: NO")
+          print("Bootloader included: NO")
           print(f"SHA256: {hashlib.sha256(image).hexdigest()}")
           PY
 
@@ -113,4 +115,13 @@ jobs:
           name: BLE-Recon-Phase1-2-${{ matrix.env }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLE-Recon-Phase1-2-log-${{ matrix.env }}
+          path: build-${{ matrix.env }}.log
+          if-no-files-found: ignore
           retention-days: 14
