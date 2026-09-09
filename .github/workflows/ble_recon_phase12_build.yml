@@ -54,7 +54,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio requests esptool intelhex
 
-      - name: Pin Bruce 1.12.4 and enable NimBLE extended advertising
+      - name: Pin Bruce 1.12.4
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -64,18 +64,8 @@ jobs:
           new = "-DBRUCE_VERSION='\"1.12.4\"'"
           if old not in s:
               raise SystemExit("Could not find BRUCE_VERSION build flag")
-          s = s.replace(old, new, 1)
-          ext = "\t-DMYNEWT_VAL_BLE_EXT_ADV=1\n"
-          if ext not in s:
-              anchor = new + "\n"
-              if anchor not in s:
-                  raise SystemExit("Could not find BRUCE_VERSION anchor")
-              s = s.replace(anchor, anchor + ext, 1)
-          p.write_text(s)
+          p.write_text(s.replace(old, new, 1))
           PY
-
-      - name: Apply CI compatibility patch
-        run: python tools/patch_ble_recon_v3_ci.py
 
       - name: Build firmware
         run: |
