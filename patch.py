@@ -333,5 +333,5 @@ def prepare_www_files():
     print(f"[DONE] Gzipped files embedded into {HEADER_FILE}")
 
 
-patch_ble_hunter_ui()
+# BLE Hunter source must compile as committed; no UI rewrite at build time.
 prepare_www_files()
