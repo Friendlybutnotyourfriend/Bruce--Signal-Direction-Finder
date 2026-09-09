@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/ble-recon-phase1-2
+      - agent/ble-recon-postreview
   pull_request:
     branches:
       - agent/ble-hunter-v2
@@ -54,33 +55,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio requests esptool intelhex
 
-      - name: Pin Bruce 1.12.4 and enable NimBLE extended advertising
+      - name: Record committed build input
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path("platformio.ini")
-          s = p.read_text()
-          old = "-DBRUCE_VERSION='\"dev\"'"
-          new = "-DBRUCE_VERSION='\"1.12.4\"'"
-          if old not in s:
-              raise SystemExit("Could not find BRUCE_VERSION build flag")
-          s = s.replace(old, new, 1)
-          ext = "\t-DMYNEWT_VAL_BLE_EXT_ADV=1\n"
-          if ext not in s:
-              anchor = new + "\n"
-              if anchor not in s:
-                  raise SystemExit("Could not find BRUCE_VERSION anchor")
-              s = s.replace(anchor, anchor + ext, 1)
-          p.write_text(s)
-          PY
-
-      - name: Apply CI compatibility patch
-        run: python tools/patch_ble_recon_v3_ci.py
+          git rev-parse HEAD
+          git diff --exit-code
+          grep -F 'BRUCE_VERSION' platformio.ini
 
       - name: Build firmware
         run: |
           set -o pipefail
           platformio run -e "${{ matrix.env }}" 2>&1 | tee "build-${{ matrix.env }}.log"
+
+      - name: Check tracked build inputs remain unchanged
+        run: git diff --exit-code
 
       - name: Build Launcher-only image
         run: |
