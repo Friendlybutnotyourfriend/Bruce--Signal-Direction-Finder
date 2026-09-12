@@ -1,0 +1,50 @@
+name: Build BLE Recon UF2
+
+on:
+  push:
+    branches:
+      - ble-recon-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Zephyr 4.4 workspace
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: ble-recon
+          toolchains: arm-zephyr-eabi
+
+      - name: Build nice!nano UF2
+        run: |
+          west build -p always \
+            -b promicro_nrf52840/nrf52840/uf2 \
+            -S cdc-acm-console \
+            ble-recon
+          ls -lh build/zephyr/zephyr.uf2 build/zephyr/zephyr.hex build/zephyr/zephyr.bin
+
+      - name: Collect firmware
+        run: |
+          mkdir -p firmware
+          cp build/zephyr/zephyr.uf2 firmware/BLE-Recon-niceNano.uf2
+          cp build/zephyr/zephyr.hex firmware/BLE-Recon-niceNano.hex
+          cp build/zephyr/zephyr.bin firmware/BLE-Recon-niceNano.bin
+          cp build/zephyr/zephyr.map firmware/BLE-Recon-niceNano.map
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLE-Recon-niceNano
+          path: firmware/
+          if-no-files-found: error
