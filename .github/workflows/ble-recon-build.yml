@@ -1,9 +1,9 @@
-name: Build BLE Recon UF2
+name: Build BLE Recon V2 UF2
 
 on:
   push:
     branches:
-      - ble-recon-build
+      - ble-recon-nicenano-v2-clean
 
 permissions:
   contents: read
@@ -34,17 +34,43 @@ jobs:
             ble-recon
           ls -lh build/zephyr/zephyr.uf2 build/zephyr/zephyr.hex build/zephyr/zephyr.bin
 
+      - name: Sanity-check UF2
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('build/zephyr/zephyr.uf2')
+          b=p.read_bytes()
+          assert len(b)%512==0
+          addrs=[]
+          fams=set()
+          for i in range(0,len(b),512):
+              blk=b[i:i+512]
+              assert int.from_bytes(blk[0:4],'little')==0x0A324655
+              assert int.from_bytes(blk[4:8],'little')==0x9E5D5157
+              assert int.from_bytes(blk[508:512],'little')==0x0AB16F30
+              addrs.append(int.from_bytes(blk[12:16],'little'))
+              flags=int.from_bytes(blk[8:12],'little')
+              if flags & 0x2000:
+                  fams.add(int.from_bytes(blk[28:32],'little'))
+          print('UF2 blocks:',len(addrs))
+          print('start:',hex(min(addrs)))
+          print('family IDs:',[hex(x) for x in fams])
+          assert min(addrs)==0x26000, hex(min(addrs))
+          assert 0xADA52840 in fams, fams
+          PY
+
       - name: Collect firmware
         run: |
           mkdir -p firmware
-          cp build/zephyr/zephyr.uf2 firmware/BLE-Recon-niceNano.uf2
-          cp build/zephyr/zephyr.hex firmware/BLE-Recon-niceNano.hex
-          cp build/zephyr/zephyr.bin firmware/BLE-Recon-niceNano.bin
-          cp build/zephyr/zephyr.map firmware/BLE-Recon-niceNano.map
+          cp build/zephyr/zephyr.uf2 firmware/BLE-Recon-V2-niceNano.uf2
+          cp build/zephyr/zephyr.hex firmware/BLE-Recon-V2-niceNano.hex
+          cp build/zephyr/zephyr.bin firmware/BLE-Recon-V2-niceNano.bin
+          cp build/zephyr/zephyr.map firmware/BLE-Recon-V2-niceNano.map
+          sha256sum firmware/* > firmware/SHA256SUMS.txt
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BLE-Recon-niceNano
+          name: BLE-Recon-V2-niceNano
           path: firmware/
           if-no-files-found: error
