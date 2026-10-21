@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - agent/ble-field-evolution
-  pull_request:
-    branches:
-      - agent/ble-recon-postreview
   workflow_dispatch:
 
 permissions:
@@ -26,7 +23,7 @@ jobs:
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -g tests/recon_core_test.cpp -o /tmp/recon-test
           /tmp/recon-test
           g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
-          python -m unittest discover -s tests -p 'test_*.py'
+          RECON_ENGINE=/tmp/recon-replay python -m unittest discover -s tests -p 'test_*.py'
   extended-scan-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 30

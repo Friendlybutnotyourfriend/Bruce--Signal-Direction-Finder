@@ -5,6 +5,7 @@ import csv
 import html
 import json
 import math
+import re
 from pathlib import Path
 import statistics
 import subprocess
@@ -14,6 +15,9 @@ def read_session(path):
     rows, warnings = [], []
     with Path(path).open(encoding="utf-8") as stream:
         for line_no, line in enumerate(stream, 1):
+            if len(rows) >= 200000:
+                warnings.append("Review limited to the first 200000 records; split the session for full analysis")
+                break
             if not line.strip():
                 continue
             try:
@@ -24,8 +28,12 @@ def read_session(path):
                     payload = bytes.fromhex(row["payload"])
                     if len(payload) > 256 or not -127 <= int(row["rssi"]) <= 20:
                         raise ValueError("invalid observation bounds")
-                    if len(row["address"]) != 17 or not 0 <= int(row["address_type"]) <= 3:
+                    if not re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", row["address"]) or not 0 <= int(row["address_type"]) <= 3:
                         raise ValueError("invalid address")
+                    if not 0 <= int(row["ms"]) <= 0xffffffff or not 0 <= int(row["us"]) <= 0xffffffffffffffff:
+                        raise ValueError("invalid timestamp")
+                    if not 0 <= int(row.get("adv_len", 0)) <= len(payload):
+                        raise ValueError("invalid advertising boundary")
                 rows.append(row)
             except (ValueError, KeyError, TypeError) as exc:
                 warnings.append(f"line {line_no}: {exc}")
@@ -63,7 +71,7 @@ def decoded_fields(payload):
 
 def summarize(rows, address=None):
     observations = [r for r in rows if r.get("type") == "observation" and (not address or r["address"].lower() == address.lower())]
-    devices, changes = {}, []
+    devices, changes, omitted_changes = {}, [], 0
     for r in observations:
         key = f'{r["address"]}/{r["address_type"]}'
         data = bytes.fromhex(r["payload"])
@@ -75,7 +83,10 @@ def summarize(rows, address=None):
             raw = item["raw"]
             offsets = [i for i in range(max(len(raw), len(data))) if raw[i:i+1] != data[i:i+1]]
             if offsets:
-                changes.append({"us": r["us"], "device": key, "fields": changed, "raw_offsets": offsets})
+                if len(changes) < 5000:
+                    changes.append({"us": r["us"], "device": key, "fields": changed, "raw_offsets": offsets})
+                else:
+                    omitted_changes += 1
         item["packets"] += 1
         item["rssi"].append(r["rssi"])
         item["last_us"] = r["us"]
@@ -83,7 +94,7 @@ def summarize(rows, address=None):
     for item in devices.values():
         item["median_rssi_dbm"] = statistics.median(item.pop("rssi"))
         del item["raw"]
-    return {"devices": devices, "changes": changes, "events": [r for r in rows if r.get("type") == "event"],
+    return {"devices": devices, "changes": changes, "omitted_changes": omitted_changes, "events": [r for r in rows if r.get("type") == "event"],
             "handoffs": [r for r in observations if r.get("decision") == 3]}
 
 
@@ -93,6 +104,8 @@ def render_html(summary, warnings, rows, destination):
               "<p>RSSI trends and advertising evidence. Address associations are hypotheses; RSSI is not distance.</p>"]
     for warning in warnings:
         blocks.append(f"<p>{html.escape(warning)}</p>")
+    if summary.get("omitted_changes"):
+        blocks.append(f'<p>Detailed change list capped at 5000; {summary["omitted_changes"]} further changes omitted.</p>')
     for key, device in summary["devices"].items():
         selected = [r for r in rows if r.get("type") == "observation" and f'{r["address"]}/{r["address_type"]}' == key]
         start, end = device["first_us"], device["last_us"]
@@ -127,6 +140,8 @@ def vna_points(path):
             if parameter != "S" or unit not in {"HZ", "KHZ", "MHZ", "GHZ"} or fmt not in {"RI", "MA", "DB"}:
                 raise ValueError("requires S parameters and RI, MA or DB format")
             freq, a, b = values
+            if fmt == "DB" and a >= 0:
+                raise ValueError(f"line {no}: passive S11 dB must be negative")
             freq *= {"HZ": 1e-6, "KHZ": 1e-3, "MHZ": 1, "GHZ": 1e3}[unit]
             rho = math.hypot(a, b) if fmt == "RI" else a if fmt == "MA" else 10 ** (a / 20)
             if freq <= 0 or not 0 <= rho < 1:
@@ -142,6 +157,8 @@ def vna_points(path):
                     if not math.isfinite(rl) or rl <= 0:
                         raise ValueError("return_loss_db must be positive and finite")
                     rho = 10 ** (-rl / 20)
+                    if rho >= 1:
+                        raise ValueError("return loss too close to zero to compute finite VSWR")
                     vswr = (1 + rho) / (1 - rho)
                     if row.get("vswr") and not math.isclose(float(row["vswr"]), vswr, rel_tol=.02):
                         raise ValueError("return loss and VSWR columns disagree")

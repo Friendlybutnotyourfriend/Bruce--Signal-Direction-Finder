@@ -41,18 +41,9 @@ void logReconMemory(const char *context, uint32_t &lastLog) {
 }
 
 constexpr uint32_t DISCOVERY_MS = 5000;
-constexpr uint32_t LOST_MS = 3000;
-constexpr uint32_t HANDOFF_ARM_MS = 900;
-constexpr uint32_t HANDOFF_MAX_GAP_MS = 10000;
-constexpr uint32_t CANDIDATE_STALE_MS = 2500;
-constexpr uint32_t NOTICE_MS = 2500;
-constexpr int HANDOFF_THRESHOLD = 78;
-constexpr uint8_t HANDOFF_HITS = 3;
-constexpr uint8_t HANDOFF_MARGIN = 10;
 constexpr size_t MAX_PAYLOAD = 256;
 constexpr size_t MAX_RESPONSE = 128;
 constexpr size_t MAX_NAME = 40;
-constexpr size_t MAX_CANDIDATES = 6;
 constexpr size_t MAX_HISTORY = 8;
 constexpr size_t MAX_LINES = 180;
 constexpr size_t MAX_GATT_LINES = 220;
@@ -103,18 +94,9 @@ struct FingerprintModel {
     uint32_t observations = 0;
     bool valid = false;
 };
-struct Candidate {
-    BleObservation obs;
-    uint8_t score = 0;
-    uint8_t hits = 0;
-    uint32_t firstSeen = 0;
-    uint32_t lastSeen = 0;
-    bool valid = false;
-};
 struct HunterState {
     BleObservation target;
     FingerprintModel model;
-    Candidate candidates[MAX_CANDIDATES];
     char currentName[MAX_NAME + 1]{};
     char history[MAX_HISTORY][18]{};
     uint8_t historyCount = 0;
@@ -232,12 +214,7 @@ SnifferState snifferState;
 MedianWindow medianWindow;
 char selectedAddress[18]{};
 bool activeBurst = false;
-// Snapshot scratch lives in .bss, never on a task stack. HunterState is ~4.8 KB and SnifferState ~2.4 KB;
-// the NimBLE host task stack is 4 KB and the Arduino loop task 8 KB, so copying these as locals overran both.
-// host* are touched only from NimBLE scan callbacks (host task context); ui* only from the menu/loop task.
-HunterState hostHunterSnap;
-HunterState hostHunterScratch;
-SnifferState hostSnifferSnap;
+// UI snapshots stay off the Arduino task stack; callbacks update state under reconMux.
 HunterState uiHunterSnap;
 SnifferState uiSnifferSnap;
 SnifferState uiFrozenSnap;
@@ -690,52 +667,6 @@ void updateFingerprint(FingerprintModel &m, const BleObservation &o) {
     }
     m.observations++;
 }
-int maskedSimilarity(const FingerprintModel &m, const BleObservation &o) {
-    if (!m.valid || !o.payloadLen) return 0;
-    const size_t n = std::min<size_t>(m.len, o.payloadLen);
-    size_t stable = 0, equal = 0, raw = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (m.baseline[i] == o.payload[i]) raw++;
-        if (m.stable[i]) {
-            stable++;
-            if (m.baseline[i] == o.payload[i]) equal++;
-        }
-    }
-    return stable >= 4 ? static_cast<int>(equal * 100 / stable) : (n ? static_cast<int>(raw * 100 / n) : 0);
-}
-int nameScore(const char *a, const char *b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    String x(a), y(b);
-    x.toLowerCase();
-    y.toLowerCase();
-    if (x == y) return 25;
-    const size_t n = std::min(x.length(), y.length());
-    size_t same = 0;
-    while (same < n && x.charAt(same) == y.charAt(same)) same++;
-    return same >= 4 && same * 100 / n >= 70 ? 14 : 0;
-}
-int scoreCandidate(const HunterState &s, const BleObservation &o, uint32_t gap) {
-    int identity = nameScore(s.currentName, o.name);
-    if (s.target.companyId && s.target.companyId == o.companyId) identity += 10;
-    if (s.target.hasAppearance && o.hasAppearance && s.target.appearance == o.appearance) identity += 5;
-    identity = std::min(identity, 30);
-    int structure = 0;
-    if (s.target.serviceHash && s.target.serviceHash == o.serviceHash) structure += 14;
-    if (s.target.shapeHash && s.target.shapeHash == o.shapeHash) structure += 6;
-    if (s.target.advType == o.advType) structure += 2;
-    if (s.target.addressType == o.addressType) structure += 2;
-    if (s.target.payloadLen && s.target.payloadLen == o.payloadLen) structure += 2;
-    structure = std::min(structure, 25);
-    const int sim = maskedSimilarity(s.model, o);
-    const int payload = sim >= 95 ? 25 : sim >= 85 ? 22 : sim >= 70 ? 17 : sim >= 55 ? 10 : sim >= 40 ? 5 : 0;
-    const int rd = std::abs(static_cast<int>(roundf(s.stableRssi)) - o.rssi);
-    const int radio = rd <= 5 ? 15 : rd <= 10 ? 11 : rd <= 18 ? 6 : rd <= 25 ? 2 : 0;
-    const int timing = gap <= 2000 ? 5 : gap <= 5000 ? 3 : 1;
-    return std::min(100, identity + structure + payload + radio + timing);
-}
-void clearCandidates(HunterState &s) {
-    for (auto &c : s.candidates) c = Candidate{};
-}
 void pushHistory(HunterState &s, const char *a) {
     if (!a || !a[0]) return;
     if (s.historyCount < MAX_HISTORY) {
@@ -746,41 +677,6 @@ void pushHistory(HunterState &s, const char *a) {
     for (size_t i = 1; i < MAX_HISTORY; i++) std::strncpy(s.history[i - 1], s.history[i], 17);
     std::strncpy(s.history[MAX_HISTORY - 1], a, 17);
     s.history[MAX_HISTORY - 1][17] = '\0';
-}
-int bestCandidate(const HunterState &s) {
-    int b = -1;
-    for (size_t i = 0; i < MAX_CANDIDATES; i++)
-        if (s.candidates[i].valid && (b < 0 || s.candidates[i].score > s.candidates[b].score)) b = i;
-    return b;
-}
-int secondScore(const HunterState &s, int b) {
-    int v = 0;
-    for (size_t i = 0; i < MAX_CANDIDATES; i++)
-        if (s.candidates[i].valid && static_cast<int>(i) != b)
-            v = std::max(v, static_cast<int>(s.candidates[i].score));
-    return v;
-}
-void acceptHandoff(HunterState &s, const Candidate &c, uint32_t now) {
-    pushHistory(s, s.target.address);
-    s.target = c.obs;
-    uint8_t src = ID_MAC;
-    const String id = resolvedIdentity(c.obs, src);
-    if (!id.isEmpty()) {
-        copyName(s.currentName, id);
-        s.identitySource = src;
-    }
-    updateFingerprint(s.model, c.obs);
-    s.handoffs++;
-    s.lastHandoffScore = c.score;
-    s.handoffNotice = now + NOTICE_MS;
-    s.fastRssi = s.stableRssi = s.bestRssi = c.obs.rssi;
-    s.trend = s.jitter = 0;
-    s.samples = 1;
-    s.lastSeen = s.lastPacket = now;
-    s.rateStart = now;
-    s.ratePackets = 1;
-    s.pps = s.gapEma = 0;
-    clearCandidates(s);
 }
 class HunterCallbacks : public NimBLEScanCallbacks {
 public:
@@ -873,7 +769,7 @@ void drawHunterDetails(const HunterState &s) {
     size_t stable = 0;
     for (size_t i = 0; i < s.model.len; i++)
         if (s.model.stable[i]) stable++;
-    appendWrapped(l, "STABLE: " + String(stable) + "  VOLATILE: " + String(s.model.len - stable));
+    appendWrapped(l, "RAW bytes stable: " + String(stable) + " volatile: " + String(s.model.len - stable));
     appendWrapped(l, "OBSERVATIONS: " + String(s.model.observations));
     appendWrapped(l, "ADDRESS HISTORY:");
     for (uint8_t i = 0; i < s.historyCount; i++)
@@ -882,14 +778,6 @@ void drawHunterDetails(const HunterState &s) {
     appendWrapped(l, "Scores are evidence, not identity probability");
     appendWrapped(l, "FIELD ASSOCIATION / automatic changes reversible");
     appendWrapped(l, recon::capture.status());
-    appendWrapped(l, "CANDIDATES:");
-    for (size_t i = 0; i < MAX_CANDIDATES; i++)
-        if (s.candidates[i].valid)
-            appendWrapped(
-                l,
-                String(i + 1) + " " + String(s.candidates[i].obs.address) +
-                    " score=" + String(s.candidates[i].score) + " hits=" + String(s.candidates[i].hits)
-            );
     size_t scroll = 0;
     while (!check(EscPress)) {
         tft.fillScreen(bruceConfig.bgColor);
@@ -1061,7 +949,7 @@ std::vector<BleObservation> discoverTargets(bool active) {
     return out;
 }
 void updateMutation(MutationModel &m, const BleObservation &o) {
-    if (!o.payloadLen) return;
+    if (!m.valid && !o.payloadLen) return;
     if (!m.valid) {
         std::memcpy(m.baseline, o.payload, o.payloadLen);
         std::memcpy(m.last, o.payload, o.payloadLen);
@@ -1212,6 +1100,7 @@ void resetSniffer(const BleObservation &o) {
     portEXIT_CRITICAL(&reconMux);
 }
 String mutationClass(const MutationModel &m) {
+    if (!m.len) return "NO PAYLOAD";
     if (!m.observations || !m.changes) return "NO MUTATION OBSERVED";
     size_t vol = 0, ctr = 0;
     for (size_t i = 0; i < m.len; i++) {

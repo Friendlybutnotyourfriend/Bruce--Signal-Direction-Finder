@@ -18,6 +18,8 @@ BLE callbacks enqueue records; only the UI task writes the SD card. The bounded 
 
 Timestamps are monotonic microseconds since boot, not UTC. Millisecond timestamps wrap at 49.7 days; engine age arithmetic handles that wrap. Raw capture is limited to 256 payload bytes/report. Scan response and advertising boundaries are recorded. This inspects advertising reports delivered by the BLE stack; it is not an over-the-air connection-channel sniffer.
 
+Desktop review is bounded to 200,000 records and 5,000 detailed changes per invocation; limits are reported visibly. Split longer recordings for complete review.
+
 Desktop commands (Python 3 standard library):
 
 ```text

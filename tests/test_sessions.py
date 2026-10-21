@@ -1,8 +1,11 @@
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,6 +76,38 @@ class SessionTests(unittest.TestCase):
         for text in ["frequency_mhz,return_loss_db\n433,-20\n", "frequency_mhz,vswr\n433,0.5\n", "frequency_mhz,return_loss_db,vswr\n433,20,5\n"]:
             with self.assertRaises(ValueError):
                 session.vna_points(self.file("bad.csv",text))
+
+    def replay(self, events):
+        engine = os.environ.get("RECON_ENGINE")
+        if not engine:
+            self.skipTest("RECON_ENGINE not supplied; CI compiles the shared C++ engine first")
+        a = "aa:00:00:00:00:01"
+        payload = "09094d79426561636f6e08ff4c001023456701"
+        rows = [dict(type="header", schema=1, target=a)]
+        for time, address in events:
+            if address in {"undo", "resume", "lock_toggle"}:
+                rows.append(dict(type="event", us=time*1000, kind=address))
+            else:
+                rows.append(dict(type="observation", us=time*1000, ms=time, address=address, address_type=1, rssi=-60, mode=0, adv_type=0, adv_len=len(bytes.fromhex(payload)), original_len=len(bytes.fromhex(payload)), decision=0, payload=payload))
+        rows.append(dict(type="footer", dropped=0, truncated=0))
+        source = self.file("replay.jsonl", "\n".join(json.dumps(r) for r in rows))
+        result = subprocess.run([sys.executable, str(ROOT / "tools/recon_session.py"), "replay", str(source), "--engine", engine], text=True, capture_output=True, check=True)
+        return [int(line.split()[2]) for line in result.stdout.splitlines()]
+
+    def test_recorded_handoff_and_undo_replay(self):
+        a,b = "aa:00:00:00:00:01", "bb:00:00:00:00:02"
+        decisions = self.replay([(100,a),(4000,b),(4300,b),(4600,b),(4700,"undo"),(8000,b)])
+        self.assertEqual(decisions, [1,2,2,3,0])
+
+    def test_recorded_crowd_replay_abstains(self):
+        a,b,c = "aa:00:00:00:00:01", "bb:00:00:00:00:02", "cc:00:00:00:00:03"
+        decisions = self.replay([(100,a),(4000,b),(4100,c),(4400,b),(4500,c),(4800,b),(4900,c)])
+        self.assertNotIn(3, decisions)
+
+    def test_recorded_menu_pause_replay(self):
+        a,b = "aa:00:00:00:00:01", "bb:00:00:00:00:02"
+        decisions = self.replay([(100,a),(20000,"resume"),(20100,b),(20400,b),(20700,b),(21000,a)])
+        self.assertEqual(decisions, [1,0,0,0,1])
 
 
 if __name__ == "__main__":
