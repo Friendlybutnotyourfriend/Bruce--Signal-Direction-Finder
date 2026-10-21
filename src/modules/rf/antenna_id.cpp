@@ -203,7 +203,7 @@ void drawBandRow(const BandDefinition &band, const BandResult &result, int y) {
 
     tft.setTextColor(result.evidence ? TFT_LIGHTGREY : TFT_DARKGREY, bruceConfig.bgColor);
     const String stats =
-        String(result.peakRssi) + "dBm +" + String(result.prominence) + "dB " + String(result.score) + "%";
+        String(result.peakRssi) + "dBm +" + String(result.prominence) + "dB";
     tft.drawString(stats, barX + barWidth + 5, y);
 }
 
@@ -303,6 +303,9 @@ void rf_antenna_id() {
     options = {
         {"Sub-GHz CC1101", [&selectedAction]() { selectedAction = 1; }},
         {"2.4G WiFi/BLE",  [&selectedAction]() { selectedAction = 2; }},
+        {"A/B/A CC1101", [&selectedAction]() { selectedAction = 4; }},
+        {"A/B/A ESP32 BLE", [&selectedAction]() { selectedAction = 5; }},
+        {"Saved profiles / VNA", [&selectedAction]() { selectedAction = 6; }},
         {"Back",           [&selectedAction]() { selectedAction = 3; }},
     };
     loopOptions(options, MENU_TYPE_SUBMENU, "Antenna ID");
@@ -310,6 +313,9 @@ void rf_antenna_id() {
 
     if (selectedAction == 1) rf_antenna_id_subghz();
     else if (selectedAction == 2) rf_antenna_id_24ghz();
+    else if (selectedAction == 4) rf_antenna_compare(false);
+    else if (selectedAction == 5) rf_antenna_compare(true);
+    else if (selectedAction == 6) rf_antenna_profiles();
 #else
     displayError("Not available on Launcher version", true);
 #endif
