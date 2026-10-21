@@ -8,5 +8,7 @@
 void rf_antenna_id();
 void rf_antenna_id_subghz();
 void rf_antenna_id_24ghz();
+void rf_antenna_compare(bool ble);
+void rf_antenna_profiles();
 
 #endif

@@ -1,4 +1,8 @@
 #include "ble_recon_v3.h"
+#include "recon_core.h"
+#include "recon_capture.h"
+#include "modules/others/audio.h"
+#include <esp_timer.h>
 
 #include "core/display.h"
 #include "core/utils.h"
@@ -67,6 +71,7 @@ struct BleObservation {
     bool scannable = false;
     uint8_t payload[MAX_PAYLOAD]{};
     uint16_t payloadLen = 0;
+    uint16_t originalLen = 0;
     uint16_t advLen = 0;
     uint8_t response[MAX_RESPONSE]{};
     uint16_t responseLen = 0;
@@ -169,6 +174,8 @@ struct SnifferState {
     MutationModel mutation;
     Fcf1Tracker fcf1;
     uint32_t packets = 0;
+    recon::Signature decoded;
+    uint8_t fieldChanges = 0;
     uint32_t lastSeen = 0;
     uint32_t rateStart = 0;
     uint32_t ratePackets = 0;
@@ -237,6 +244,81 @@ SnifferState uiFrozenSnap;
 template <typename T> void reinit(T &x) {
     x.~T();
     new (&x) T();
+}
+void updateFingerprint(FingerprintModel &, const BleObservation &);
+recon::Association association;
+BleObservation previousTarget;
+recon::Status associationStatus() {
+    portENTER_CRITICAL(&reconMux);
+    const auto status = association.status(millis());
+    portEXIT_CRITICAL(&reconMux);
+    return status;
+}
+recon::Packet packet(const BleObservation &o, uint32_t now) {
+    recon::Packet p;
+    p.ms = now;
+    std::memcpy(p.address, o.address, 18);
+    p.addressType = o.addressType;
+    p.rssi = o.rssi;
+    p.payload = o.payload;
+    p.length = o.advLen ? o.advLen : o.payloadLen;
+    p.response = o.advType == 4;
+    p.truncated = o.originalLen > o.payloadLen;
+#ifdef BLE_RECON_EXT_ADV
+    p.truncated = p.truncated || o.dataStatus != 0;
+#endif
+    return p;
+}
+recon::Decision associate(const BleObservation &o, uint32_t now) {
+    const auto p = packet(o, now);
+    portENTER_CRITICAL(&reconMux);
+    const auto result = association.observe(p);
+    const auto state = association.status(now);
+    const bool active = activeBurst;
+    portEXIT_CRITICAL(&reconMux);
+    recon::CaptureRow row;
+    row.us = esp_timer_get_time(); row.ms = now;
+    std::memcpy(row.address, o.address, 18);
+    row.addressType = o.addressType; row.rssi = o.rssi;
+    row.advType = o.advType; row.mode = active ? 1 : 0;
+    row.length = o.payloadLen; row.originalLength = o.originalLen; row.advLength = o.advLen;
+    row.decision = static_cast<uint8_t>(result); row.score = state.score;
+    std::memcpy(row.payload, o.payload, o.payloadLen);
+#ifdef BLE_RECON_EXT_ADV
+    row.sid = o.sid; row.primaryPhy = o.primaryPhy; row.secondaryPhy = o.secondaryPhy; row.dataStatus = o.dataStatus;
+#endif
+    recon::capture.push(row);
+    return result;
+}
+void resetAssociation(const BleObservation &o) {
+    portENTER_CRITICAL(&reconMux);
+    association.reset(packet(o, millis()));
+    reinit(previousTarget);
+    portEXIT_CRITICAL(&reconMux);
+}
+String matchStatus() {
+    const auto a = associationStatus();
+    if (a.ambiguous) return "AMBIGUOUS " + String(a.score) + "/100 " + String(a.hits) + " hits";
+    if (millis() - a.lastSeen > a.timeout) return "LOST (wait " + String(a.timeout / 1000) + "s)";
+    return a.locked ? "ADDRESS LOCKED" : a.tentative ? "STRONG MATCH - HYPOTHESIS" : "SELECTED ADDRESS";
+}
+void undoAssociation(bool hunter) {
+    // Called only while scanning is stopped.
+    if (!association.undo(millis()) || !previousTarget.address[0]) {
+        displayWarning("No address change to undo", true); return;
+    }
+    if (hunter) {
+        hunterState.target = previousTarget;
+        std::strncpy(hunterState.currentName, previousTarget.name, MAX_NAME);
+        reinit(hunterState.model); updateFingerprint(hunterState.model, previousTarget);
+        hunterState.initialized = false;
+        medianWindow.reset();
+    } else {
+        snifferState.target = previousTarget;
+        reinit(snifferState.mutation);
+    }
+    std::memcpy(selectedAddress, previousTarget.address, 18);
+    recon::capture.event("undo", previousTarget.address);
 }
 uint32_t fnv1a(const uint8_t *d, size_t n, uint32_t h = 2166136261UL) {
     for (size_t i = 0; i < n; i++) {
@@ -523,6 +605,7 @@ void fillObservation(const NimBLEAdvertisedDevice *device, BleObservation &o) {
     const std::vector<uint8_t> &p = device->getPayload();
     const size_t n = std::min(p.size(), MAX_PAYLOAD);
     o.payloadLen = n;
+    o.originalLen = std::min<size_t>(p.size(), 65535);
     o.advLen = std::min<size_t>(device->getAdvLength(), n);
     if (n) std::memcpy(o.payload, p.data(), n);
     if (!p.empty()) o.fullHash = fnv1a(p.data(), p.size());
@@ -553,7 +636,7 @@ void fillObservation(const NimBLEAdvertisedDevice *device, BleObservation &o) {
             if (o.fcf1Len) std::memcpy(o.fcf1, d.data(), o.fcf1Len);
         }
     }
-    o.serviceHash = sh;
+    o.serviceHash = (device->getServiceUUIDCount() || device->getServiceDataCount()) ? sh : 0;
     o.hasTxPower = device->haveTXPower();
     o.txPower = o.hasTxPower ? device->getTXPower() : 0;
     o.hasAppearance = device->haveAppearance();
@@ -703,140 +786,51 @@ class HunterCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
         if (!device) return;
-        static uint32_t lastLog = 0;
-        logReconMemory("HUNTER_HOST", lastLog);
         BleObservation o;
         fillObservation(device, o);
         const uint32_t now = millis();
+        const auto decision = associate(o, now);
+        if (decision != recon::Decision::Current && decision != recon::Decision::Handoff) return;
+        if (o.advType == 4) return;
+        const auto match = associationStatus();
+        medianWindow.add(o.rssi);
+        const float med = medianWindow.median();
         portENTER_CRITICAL(&reconMux);
-        const bool current = std::strncmp(o.address, hunterState.target.address, 17) == 0;
-        HunterState &snap = hostHunterSnap;
-        snap = hunterState;
-        portEXIT_CRITICAL(&reconMux);
-        if (current) {
-            const bool lost = snap.initialized && now - snap.lastSeen > LOST_MS;
-            if (lost) medianWindow.reset();
-            medianWindow.add(o.rssi);
-            const float med = medianWindow.median();
-            portENTER_CRITICAL(&reconMux);
-            updateFingerprint(hunterState.model, o);
-            hunterState.target = o;
-            uint8_t src = ID_MAC;
-            const String id = resolvedIdentity(o, src);
-            if (!id.isEmpty() && src == ID_NAME) {
-                copyName(hunterState.currentName, id);
-                hunterState.identitySource = src;
-            }
-            if (lost) {
-                hunterState.offlineMs = now - hunterState.lastSeen;
-                hunterState.reacquisitions++;
-                hunterState.reacquireNotice = now + NOTICE_MS;
-                hunterState.fastRssi = hunterState.stableRssi = hunterState.bestRssi = med;
-                hunterState.trend = hunterState.jitter = 0;
-                hunterState.samples = 1;
-                hunterState.lastSeen = hunterState.lastPacket = now;
-                hunterState.rateStart = now;
-                hunterState.ratePackets = 1;
-                hunterState.pps = hunterState.gapEma = 0;
-                portEXIT_CRITICAL(&reconMux);
-                return;
-            }
-            if (hunterState.lastPacket) {
-                const uint32_t gap = now - hunterState.lastPacket;
-                if (gap < 60000)
-                    hunterState.gapEma = hunterState.gapEma <= 0.1f
-                                             ? gap
-                                             : hunterState.gapEma + 0.18f * (gap - hunterState.gapEma);
-            }
-            hunterState.lastPacket = now;
-            hunterState.ratePackets++;
-            if (now - hunterState.rateStart >= 1000) {
-                hunterState.pps = hunterState.ratePackets * 1000.0f / (now - hunterState.rateStart);
-                hunterState.rateStart = now;
-                hunterState.ratePackets = 0;
-            }
-            if (!hunterState.initialized) {
-                hunterState.fastRssi = hunterState.stableRssi = hunterState.bestRssi = med;
-                hunterState.samples = 1;
-                hunterState.lastSeen = now;
-                hunterState.initialized = true;
-                portEXIT_CRITICAL(&reconMux);
-                return;
-            }
-            hunterState.fastRssi += 0.45f * (med - hunterState.fastRssi);
-            hunterState.stableRssi += 0.14f * (med - hunterState.stableRssi);
-            hunterState.trend = hunterState.fastRssi - hunterState.stableRssi;
-            hunterState.jitter +=
-                0.18f * (fabsf(static_cast<float>(o.rssi) - hunterState.fastRssi) - hunterState.jitter);
-            if (hunterState.stableRssi > hunterState.bestRssi) hunterState.bestRssi = hunterState.stableRssi;
-            hunterState.samples++;
-            hunterState.lastSeen = now;
-            clearCandidates(hunterState);
-            portEXIT_CRITICAL(&reconMux);
-            return;
+        auto &s = hunterState;
+        const bool moved = decision == recon::Decision::Handoff;
+        const bool lost = s.initialized && now - s.lastSeen > match.timeout;
+        if (moved) {
+            previousTarget = s.target;
+            pushHistory(s, s.target.address);
+            ++s.handoffs;
+            s.lastHandoffScore = match.score;
+            s.handoffNotice = now;
+            reinit(s.model);
         }
-        if (!snap.initialized) return;
-        const uint32_t gap = now - snap.lastSeen;
-        if (gap < HANDOFF_ARM_MS || gap > HANDOFF_MAX_GAP_MS) return;
-        const int score = scoreCandidate(snap, o, gap);
-        if (score < 45) return;
-        portENTER_CRITICAL(&reconMux);
-        int slot = -1;
-        for (size_t i = 0; i < MAX_CANDIDATES; i++)
-            if (hunterState.candidates[i].valid &&
-                std::strncmp(hunterState.candidates[i].obs.address, o.address, 17) == 0) {
-                slot = i;
-                break;
-            }
-        if (slot < 0)
-            for (size_t i = 0; i < MAX_CANDIDATES; i++)
-                if (!hunterState.candidates[i].valid) {
-                    slot = i;
-                    break;
-                }
-        if (slot < 0) {
-            int weak = 0;
-            for (size_t i = 1; i < MAX_CANDIDATES; i++)
-                if (hunterState.candidates[i].score < hunterState.candidates[weak].score) weak = i;
-            if (score > hunterState.candidates[weak].score) slot = weak;
+        if (moved || lost || !s.initialized) {
+            if (lost) { ++s.reacquisitions; s.offlineMs = now - s.lastSeen; s.reacquireNotice = now; }
+            medianWindow.reset(); medianWindow.add(o.rssi);
+            s.fastRssi = s.stableRssi = s.bestRssi = o.rssi;
+            s.trend = s.jitter = 0; s.samples = 0;
+        } else {
+            s.fastRssi += .45f * (med - s.fastRssi);
+            s.stableRssi += .14f * (med - s.stableRssi);
+            s.trend = s.fastRssi - s.stableRssi;
+            s.jitter += .18f * (fabsf(o.rssi - s.fastRssi) - s.jitter);
         }
-        if (slot < 0) {
-            portEXIT_CRITICAL(&reconMux);
-            return;
-        }
-        Candidate &c = hunterState.candidates[slot];
-        if (!c.valid || now - c.lastSeen > CANDIDATE_STALE_MS) {
-            reinit(c);
-            c.valid = true;
-            c.firstSeen = now;
-        }
-        c.obs = o;
-        c.score = score;
-        c.hits = c.hits < 255 ? c.hits + 1 : 255;
-        c.lastSeen = now;
-        const int best = bestCandidate(hunterState), second = secondScore(hunterState, best);
-        const bool dominant =
-            best >= 0 && (second == 0 || hunterState.candidates[best].score - second >= HANDOFF_MARGIN);
-        bool accepted = false;
-        Candidate acceptedCandidate;
-        if (best >= 0 && dominant && hunterState.candidates[best].score >= HANDOFF_THRESHOLD &&
-            hunterState.candidates[best].hits >= HANDOFF_HITS) {
-            acceptedCandidate = hunterState.candidates[best];
-            acceptHandoff(hunterState, acceptedCandidate, now);
-            accepted = true;
+        updateFingerprint(s.model, o);
+        s.target = o;
+        if (o.name[0]) { std::strncpy(s.currentName, o.name, MAX_NAME); s.identitySource = ID_NAME; }
+        if (s.lastPacket && now - s.lastPacket < 60000)
+            s.gapEma = s.gapEma == 0 ? now - s.lastPacket : s.gapEma + .18f * (now - s.lastPacket - s.gapEma);
+        s.lastSeen = s.lastPacket = now;
+        s.initialized = true; ++s.samples; ++s.ratePackets;
+        s.bestRssi = std::max(s.bestRssi, s.stableRssi);
+        if (now - s.rateStart >= 1000) {
+            s.pps = s.ratePackets * 1000.f / (now - s.rateStart);
+            s.ratePackets = 0; s.rateStart = now;
         }
         portEXIT_CRITICAL(&reconMux);
-        if (accepted) {
-            medianWindow.reset();
-            medianWindow.add(acceptedCandidate.obs.rssi);
-            Serial.printf(
-                "[BLE-HUNTER] HANDOFF %s score=%u hits=%u gap=%lums\n",
-                acceptedCandidate.obs.address,
-                acceptedCandidate.score,
-                acceptedCandidate.hits,
-                static_cast<unsigned long>(gap)
-            );
-        }
     }
 };
 HunterCallbacks hunterCallbacks;
@@ -884,6 +878,10 @@ void drawHunterDetails(const HunterState &s) {
     appendWrapped(l, "ADDRESS HISTORY:");
     for (uint8_t i = 0; i < s.historyCount; i++)
         appendWrapped(l, String(i + 1) + ": " + String(s.history[i]));
+    appendWrapped(l, matchStatus());
+    appendWrapped(l, "Scores are evidence, not identity probability");
+    appendWrapped(l, "FIELD ASSOCIATION / automatic changes reversible");
+    appendWrapped(l, recon::capture.status());
     appendWrapped(l, "CANDIDATES:");
     for (size_t i = 0; i < MAX_CANDIDATES; i++)
         if (s.candidates[i].valid)
@@ -914,6 +912,9 @@ bool startPassiveHunter() {
     pBLEScan->stop();
     pBLEScan->clearResults();
     pBLEScan->setActiveScan(false);
+#ifdef BLE_RECON_EXT_ADV
+    pBLEScan->setPhy(NimBLEScan::SCAN_ALL);
+#endif
     pBLEScan->setInterval(SCAN_INT);
     pBLEScan->setWindow(SCAN_WINDOW);
     pBLEScan->setMaxResults(0);
@@ -927,19 +928,57 @@ void huntTarget(const BleObservation &t) {
         return;
     }
     resetHunter(t);
+    resetAssociation(t);
+    recon::capture.begin("hunter", t.address);
     if (!startPassiveHunter()) {
+        recon::capture.end();
         stopBLEStack();
         displayError("Unable to start BLE scan", true);
         return;
     }
     uint32_t draw = 0;
     uint32_t lastLog = millis();
+    uint32_t warmSince = 0, lastBeep = 0, lastSamples = 0;
+    bool audio = false, haveCheckpoint = false;
+    float checkpoint = 0;
+    float trail[48]{};
+    unsigned trailCount = 0;
     while (!check(EscPress)) {
         logReconMemory("HUNTER_UI", lastLog);
+        recon::capture.drain();
         if (check(LongPress) || check(SelPress)) {
+            pBLEScan->stop();
+            recon::capture.event("pause", "hunter_menu");
+            std::vector<Option> actions;
+            int action = -1;
+            actions.emplace_back("Details / evidence", [&]() { action = 0; });
+            actions.emplace_back("Set location checkpoint", [&]() { action = 1; });
+            actions.emplace_back(audio ? "Audio off" : "Audio on", [&]() { action = 2; });
+            actions.emplace_back("Bookmark", [&]() { action = 3; });
+            actions.emplace_back("Undo address change + lock", [&]() { action = 4; });
+            actions.emplace_back("Toggle address lock", [&]() { action = 5; });
+            actions.emplace_back(recon::capture.active() ? "Stop recording" : "Start recording", [&]() { action = 6; });
+            loopOptions(actions, MENU_TYPE_REGULAR, "Hunter actions", 0, false);
             hunterSnapshot(uiHunterSnap);
-            drawHunterDetails(uiHunterSnap);
-            draw = 0;
+            if (action == 0) drawHunterDetails(uiHunterSnap);
+            if (action == 1) {
+                const auto state = associationStatus();
+                if (millis() - state.lastSeen <= state.timeout && uiHunterSnap.samples >= 3) {
+                    checkpoint = uiHunterSnap.stableRssi; haveCheckpoint = true;
+                    recon::capture.event("checkpoint", String(checkpoint, 1).c_str());
+                } else displayWarning("Need fresh target samples", true);
+            }
+            if (action == 2) audio = !audio;
+            if (action == 3) recon::capture.event("bookmark", "hunter");
+            if (action == 4) { undoAssociation(true); haveCheckpoint = false; trailCount = 0; }
+            if (action == 5) { association.lock(!associationStatus().locked); recon::capture.event("lock_toggle"); }
+            if (action == 6) {
+                if (recon::capture.active()) recon::capture.end();
+                else recon::capture.begin("hunter", uiHunterSnap.target.address);
+            }
+            recon::capture.event("resume", "hunter_menu");
+            if (!startPassiveHunter()) { displayError("Scan restart failed", true); break; }
+            draw = 0; warmSince = 0;
             delay(100);
         }
         if (millis() - draw >= 250) {
@@ -949,34 +988,36 @@ void huntTarget(const BleObservation &t) {
             drawMainBorder(false);
             tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
             tft.setTextSize(FP);
-            tft.drawCentreString("BLE HUNTER DF", tftWidth / 2, 29, 1);
-            tft.drawCentreString(
-                s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 42, 1
-            );
-            tft.drawCentreString(
-                addressTypeName(s.target) + " " + String(s.target.address), tftWidth / 2, 54, 1
-            );
-            const uint32_t now = millis();
-            String status = now - s.handoffNotice < NOTICE_MS ? "HANDOFF " + String(s.lastHandoffScore)
-                            : now - s.reacquireNotice < NOTICE_MS
-                                ? "REACQUIRED " + String(s.offlineMs / 1000) + "s"
-                            : now - s.lastSeen > LOST_MS ? "TARGET LOST"
-                            : s.trend >= 3               ? "WARMER"
-                            : s.trend <= -3              ? "COLDER"
-                                                         : "STEADY";
-            tft.setTextColor(
-                status.startsWith("TARGET") ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor
-            );
-            tft.drawCentreString(status, tftWidth / 2, 69, 1);
+            const auto a = associationStatus();
+            const uint32_t now = millis(), age = now - a.lastSeen;
+            const bool fresh = age <= a.timeout;
+            const bool unstable = s.jitter > 4 || fabsf(s.trend) < s.jitter;
+            String direction = !fresh ? "TARGET LOST" : unstable ? "UNSTABLE" : s.trend > 2 ? "WARMER" : s.trend < -2 ? "COLDER" : "STEADY";
+            tft.drawCentreString("BLE HUNTER / FIELD", tftWidth / 2, 26, 1);
+            tft.drawCentreString(s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 38, 1);
+            tft.drawCentreString(matchStatus(), tftWidth / 2, 50, 1);
+            tft.setTextColor(!fresh ? TFT_RED : unstable ? TFT_YELLOW : bruceConfig.priColor, bruceConfig.bgColor);
+            tft.drawCentreString(direction, tftWidth / 2, 64, 2);
             tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-            tft.drawString("RSSI " + String(s.stableRssi, 1) + "  PEAK " + String(s.bestRssi, 1), 10, 88, 1);
-            tft.drawString("TREND " + String(s.trend, 1) + "  JIT " + String(s.jitter, 1), 10, 101, 1);
-            tft.drawString("RATE " + String(s.pps, 1) + "/s  GAP " + String(s.gapEma, 0) + "ms", 10, 114, 1);
-            tft.drawString(
-                "HANDOFF " + String(s.handoffs) + "  REACQ " + String(s.reacquisitions), 10, 127, 1
-            );
-            tft.drawString("MATCH " + String(s.lastHandoffScore), 10, 140, 1);
-            tft.drawCentreString("Hold details  Esc back", tftWidth / 2, tftHeight - 14, 1);
+            tft.drawString(String(s.stableRssi, 1) + " dBm  age " + String(age) + " ms", 10, 88, 1);
+            tft.drawString(haveCheckpoint ? "Checkpoint " + String(s.stableRssi - checkpoint, 1) + " dB  jitter " + String(s.jitter, 1) : "Trend " + String(s.trend, 1) + " dB  jitter " + String(s.jitter, 1), 10, 100, 1);
+            tft.drawString(recon::capture.status(), 10, 112, 1);
+            if (s.samples != lastSamples && fresh) {
+                lastSamples = s.samples;
+                if (trailCount == 48) { for (unsigned i = 1; i < 48; ++i) trail[i-1] = trail[i]; --trailCount; }
+                trail[trailCount++] = s.stableRssi;
+            }
+            for (unsigned i = 1; i < trailCount; ++i) {
+                const auto y = [](float v) { return 145 - static_cast<int>((std::max(-100.f, std::min(-30.f, v)) + 100) * 20 / 70); };
+                tft.drawLine(10 + (i-1) * (tftWidth-20) / 47, y(trail[i-1]), 10 + i * (tftWidth-20) / 47, y(trail[i]), fresh ? bruceConfig.priColor : TFT_DARKGREY);
+            }
+            if (fresh && !unstable && s.trend > 2 && s.samples >= 7) {
+                if (!warmSince) warmSince = now;
+                if (audio && now - warmSince >= 4000 && now - lastBeep >= 3000) {
+                    recon::capture.drain(32); _tone(1200, 500); lastBeep = now;
+                }
+            } else warmSince = 0;
+            tft.drawCentreString("Select actions  Esc back", tftWidth / 2, tftHeight - 14, 1);
             drawStatusBar();
             draw = millis();
         }
@@ -984,6 +1025,7 @@ void huntTarget(const BleObservation &t) {
     }
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
+    recon::capture.end();
     pBLEScan->setMaxResults(0xFF);
     pBLEScan->clearResults();
     stopBLEStack();
@@ -995,6 +1037,9 @@ std::vector<BleObservation> discoverTargets(bool active) {
     pBLEScan->stop();
     pBLEScan->clearResults();
     pBLEScan->setActiveScan(active);
+#ifdef BLE_RECON_EXT_ADV
+    pBLEScan->setPhy(NimBLEScan::SCAN_ALL);
+#endif
     pBLEScan->setInterval(SCAN_INT);
     pBLEScan->setWindow(SCAN_WINDOW);
     pBLEScan->setMaxResults(80);
@@ -1038,6 +1083,14 @@ void updateMutation(MutationModel &m, const BleObservation &o) {
         }
         m.last[i] = o.payload[i];
     }
+    const size_t high = std::max<size_t>(m.len, o.payloadLen);
+    for (size_t i = n; i < high; ++i) {
+        m.volatileMask[i] = true;
+        if (m.lastDiffLen < MAX_PAYLOAD) m.lastDiff[m.lastDiffLen++] = static_cast<uint8_t>(i);
+        ++m.lastChanged;
+        if (i < o.payloadLen) m.last[i] = o.payload[i];
+    }
+    m.len = o.payloadLen;
     if (m.lastChanged) m.changes++;
     m.observations++;
 }
@@ -1077,36 +1130,39 @@ public:
         fillObservation(device, o);
         const uint32_t now = millis();
         const bool scanResponse = o.advType == 4;
-        portENTER_CRITICAL(&reconMux);
-        const bool same = std::strncmp(o.address, selectedAddress, 17) == 0;
-        SnifferState &snap = hostSnifferSnap;
-        snap = snifferState;
-        portEXIT_CRITICAL(&reconMux);
-        bool selected = same;
-        if (!selected && !scanResponse && snap.initialized && now - snap.lastSeen > LOST_MS) {
-            HunterState &h = hostHunterScratch;
-            reinit(h);
-            h.target = snap.target;
-            copyName(h.currentName, snap.target.name);
-            h.stableRssi = snap.target.rssi;
-            h.model.valid = snap.mutation.valid;
-            h.model.len = snap.mutation.len;
-            if (h.model.valid) {
-                std::memcpy(h.model.baseline, snap.mutation.baseline, MAX_PAYLOAD);
-                for (size_t i = 0; i < MAX_PAYLOAD; i++) h.model.stable[i] = !snap.mutation.volatileMask[i];
-            }
-            selected = scoreCandidate(h, o, now - snap.lastSeen) >= HANDOFF_THRESHOLD;
-            if (selected) {
-                portENTER_CRITICAL(&reconMux);
-                std::strncpy(selectedAddress, o.address, 17);
-                selectedAddress[17] = '\0';
-                portEXIT_CRITICAL(&reconMux);
-            }
-        }
+        const auto decision = associate(o, now);
+        const bool selected = decision == recon::Decision::Current || decision == recon::Decision::Handoff;
         if (!selected) return;
+        if (decision == recon::Decision::Handoff) {
+            portENTER_CRITICAL(&reconMux);
+            previousTarget = snifferState.target;
+            std::memcpy(selectedAddress, o.address, 18);
+            reinit(snifferState.mutation);
+            portEXIT_CRITICAL(&reconMux);
+        }
+
         portENTER_CRITICAL(&reconMux);
         if (!scanResponse) {
             const uint32_t previousSeen = snifferState.lastSeen;
+            const auto decoded = recon::decode(o.payload, o.payloadLen);
+            unsigned changes = 0;
+            for (unsigned i = 0; i < decoded.count; ++i) {
+                const auto &f = decoded.fields[i];
+                bool equal = false;
+                for (unsigned j = 0; j < snifferState.decoded.count; ++j) {
+                    const auto &old = snifferState.decoded.fields[j];
+                    if (f.key == old.key && f.len == old.len && std::memcmp(f.data, old.data, f.len) == 0) equal = true;
+                }
+                if (!equal) ++changes;
+            }
+            for (unsigned i = 0; i < snifferState.decoded.count; ++i) {
+                bool found = false;
+                for (unsigned j = 0; j < decoded.count; ++j)
+                    if (snifferState.decoded.fields[i].key == decoded.fields[j].key) found = true;
+                if (!found) ++changes;
+            }
+            snifferState.fieldChanges = changes;
+            snifferState.decoded = decoded;
             updateMutation(snifferState.mutation, o);
             updateFcf1(snifferState.fcf1, o, now);
             snifferState.target = o;
@@ -1188,6 +1244,11 @@ void drawSniffer(const SnifferState &s, uint8_t view, size_t &scroll, bool froze
         1
     );
     std::vector<String> l;
+    appendWrapped(l, matchStatus());
+    appendWrapped(l, recon::capture.status());
+    appendWrapped(l, "Decoded field changes: " + String(s.fieldChanges));
+    appendWrapped(l, "Signature preview: first 24 bytes/field");
+
     if (view == 0) {
         appendWrapped(l, "Address: " + String(s.target.address));
         appendWrapped(l, "Type: " + addressTypeName(s.target));
@@ -1328,6 +1389,9 @@ bool startPassiveSniffer() {
     pBLEScan->stop();
     pBLEScan->clearResults();
     pBLEScan->setActiveScan(false);
+#ifdef BLE_RECON_EXT_ADV
+    pBLEScan->setPhy(NimBLEScan::SCAN_ALL);
+#endif
     pBLEScan->setInterval(SCAN_INT);
     pBLEScan->setWindow(SCAN_WINDOW);
     pBLEScan->setMaxResults(0);
@@ -1351,7 +1415,11 @@ void runActiveScan() {
     snifferState.responseLen = 0;
     activeBurst = true;
     portEXIT_CRITICAL(&reconMux);
+    recon::capture.event("active_scan_start");
     pBLEScan->setActiveScan(true);
+#ifdef BLE_RECON_EXT_ADV
+    pBLEScan->setPhy(NimBLEScan::SCAN_ALL);
+#endif
     pBLEScan->setInterval(SCAN_INT);
     pBLEScan->setWindow(SCAN_WINDOW);
     pBLEScan->setMaxResults(0);
@@ -1359,6 +1427,7 @@ void runActiveScan() {
     pBLEScan->start(0, false, true);
     const uint32_t start = millis();
     while (millis() - start < 3000) {
+        recon::capture.drain();
         tft.fillScreen(bruceConfig.bgColor);
         drawMainBorder(false);
         tft.setTextColor(TFT_RED, bruceConfig.bgColor);
@@ -1375,6 +1444,7 @@ void runActiveScan() {
     activeBurst = false;
     snifferState.activeComplete = true;
     portEXIT_CRITICAL(&reconMux);
+    recon::capture.event("active_scan_end");
     if (!startPassiveSniffer()) displayWarning("Scan restart failed - Esc and re-enter", true);
 }
 String characteristicProperties(const NimBLERemoteCharacteristic *c) {
@@ -1500,7 +1570,10 @@ void sniffTarget(const BleObservation &t) {
         return;
     }
     resetSniffer(t);
+    resetAssociation(t);
+    recon::capture.begin("sniffer", t.address);
     if (!startPassiveSniffer()) {
+        recon::capture.end();
         stopBLEStack();
         displayError("Unable to start BLE scan", true);
         return;
@@ -1514,18 +1587,25 @@ void sniffTarget(const BleObservation &t) {
     uint32_t lastLog = millis();
     while (!check(EscPress)) {
         logReconMemory("SNIFFER_UI", lastLog);
+        recon::capture.drain();
         if (check(PrevPress)) {
             if (scroll) scroll--;
             else view = (view + 4) % 5;
         }
         if (check(NextPress)) scroll++;
         if (check(LongPress) || check(SelPress)) {
+            pBLEScan->stop();
+            recon::capture.event("pause", "sniffer_menu");
             std::vector<Option> actions;
             int chosen = -1;
             actions.emplace_back("Active scan request (3s)", [&chosen]() { chosen = 0; });
             actions.emplace_back("Connect + map GATT", [&chosen]() { chosen = 1; });
             actions.emplace_back("Next view", [&chosen]() { chosen = 2; });
             actions.emplace_back(frozen ? "Unfreeze frame" : "Freeze frame", [&chosen]() { chosen = 3; });
+            actions.emplace_back("Bookmark", [&chosen]() { chosen = 4; });
+            actions.emplace_back("Undo address change + lock", [&chosen]() { chosen = 5; });
+            actions.emplace_back("Toggle address lock", [&chosen]() { chosen = 6; });
+            actions.emplace_back(recon::capture.active() ? "Stop recording" : "Start recording", [&chosen]() { chosen = 7; });
             loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
             if (chosen == 0) {
                 frozen = false;
@@ -1557,6 +1637,15 @@ void sniffTarget(const BleObservation &t) {
                 frozen = !frozen;
                 if (frozen) snifferSnapshot(frozenState);
             }
+            if (chosen == 4) recon::capture.event("bookmark", "sniffer");
+            if (chosen == 5) { undoAssociation(false); frozen = false; }
+            if (chosen == 6) { association.lock(!associationStatus().locked); recon::capture.event("lock_toggle"); }
+            if (chosen == 7) {
+                if (recon::capture.active()) recon::capture.end();
+                else recon::capture.begin("sniffer", snifferState.target.address);
+            }
+            recon::capture.event("resume", "sniffer_menu");
+            if (!startPassiveSniffer()) { displayError("Scan restart failed", true); break; }
             delay(100);
         }
         if (millis() - draw >= (frozen ? 1000 : 300)) {
@@ -1568,6 +1657,7 @@ void sniffTarget(const BleObservation &t) {
     }
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
+    recon::capture.end();
     pBLEScan->setMaxResults(0xFF);
     pBLEScan->clearResults();
     stopBLEStack();
