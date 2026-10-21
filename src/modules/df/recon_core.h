@@ -102,6 +102,7 @@ class Association {
     uint32_t lastCadence = 0;
     uint32_t resumeTime = 0;
     bool grace = false;
+    bool cadenceEstablished = false;
     Status state;
     static bool equalAddress(const Packet &p, const char *address, uint8_t type) {
         return p.addressType == type && std::strncmp(p.address, address, 17) == 0;
@@ -194,6 +195,7 @@ public:
             grace = false;
             const uint32_t gap = p.ms - lastCadence;
             if (gap >= 40 && gap <= 60000) {
+                cadenceEstablished = true;
                 if (cadence == 0) cadence = static_cast<float>(gap);
                 deviation += .2f * (std::fabs(gap - cadence) - deviation);
                 cadence += .15f * (gap - cadence);
@@ -208,6 +210,8 @@ public:
             return Decision::Current;
         }
         const uint32_t age = p.ms - state.lastSeen;
+        // Discovery supplies only one observation. Learn an actual repeat before guessing rotations.
+        if (!cadenceEstablished) return Decision::Ignore;
         if (grace && p.ms - resumeTime < state.timeout) return Decision::Ignore;
         if (state.locked || p.response || p.truncated || age < state.timeout || age > state.timeout * 4) return Decision::Ignore;
         const int points = score(decode(p.payload, p.length), p.rssi);

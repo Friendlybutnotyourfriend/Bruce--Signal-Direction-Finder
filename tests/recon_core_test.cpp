@@ -34,6 +34,7 @@ int main() {
     assert(e.status(4700).locked && std::string(e.status(4700).address) == a);
     assert(e.observe(packet(b, 8000, reordered)) == Decision::Ignore);
     e.reset(packet(a, 100, raw));
+    e.observe(packet(a, 500, raw));
     e.observe(packet(b, 4000, raw)); e.observe(packet(c, 4100, raw));
     for (uint32_t t=4400;t<10000;t+=400) {
         assert(e.observe(packet(b,t,raw)) != Decision::Handoff);
@@ -57,6 +58,8 @@ int main() {
     assert(e.observe(packet(a,500,raw,-60,0)) == Decision::Ignore);
     auto response = packet(b,4000,raw); response.response = true;
     assert(e.observe(response) == Decision::Ignore);
+    e.reset(packet(a, 100, raw));
+    for (uint32_t t=4000;t<9000;t+=500) assert(e.observe(packet(b,t,raw)) == Decision::Ignore);
     std::vector<uint8_t> nameOnly{9,9,'M','y','B','e','a','c','o','n'};
     e.reset(packet(a,100,nameOnly));
     for (uint32_t t=4000;t<9000;t+=500) assert(e.observe(packet(b,t,nameOnly)) == Decision::Ignore);

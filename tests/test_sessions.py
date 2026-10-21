@@ -96,12 +96,12 @@ class SessionTests(unittest.TestCase):
 
     def test_recorded_handoff_and_undo_replay(self):
         a,b = "aa:00:00:00:00:01", "bb:00:00:00:00:02"
-        decisions = self.replay([(100,a),(4000,b),(4300,b),(4600,b),(4700,"undo"),(8000,b)])
-        self.assertEqual(decisions, [1,2,2,3,0])
+        decisions = self.replay([(100,a),(500,a),(4000,b),(4300,b),(4600,b),(4700,"undo"),(8000,b)])
+        self.assertEqual(decisions, [1,1,2,2,3,0])
 
     def test_recorded_crowd_replay_abstains(self):
         a,b,c = "aa:00:00:00:00:01", "bb:00:00:00:00:02", "cc:00:00:00:00:03"
-        decisions = self.replay([(100,a),(4000,b),(4100,c),(4400,b),(4500,c),(4800,b),(4900,c)])
+        decisions = self.replay([(100,a),(500,a),(4000,b),(4100,c),(4400,b),(4500,c),(4800,b),(4900,c)])
         self.assertNotIn(3, decisions)
 
     def test_recorded_menu_pause_replay(self):
