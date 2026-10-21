@@ -100,6 +100,8 @@ class Association {
     uint8_t previousType = 0;
     float cadence = 0, deviation = 0, rssi = -127;
     uint32_t lastCadence = 0;
+    uint32_t resumeTime = 0;
+    bool grace = false;
     Status state;
     static bool equalAddress(const Packet &p, const char *address, uint8_t type) {
         return p.addressType == type && std::strncmp(p.address, address, 17) == 0;
@@ -123,7 +125,7 @@ class Association {
         int best = 0;
         for (uint8_t k = 0; k < modelCount; ++k) {
             const auto &m = models[k];
-            unsigned total = 0, same = 0, fields = 0, distinctive = 0;
+            unsigned total = 0, same = 0, fields = 0, distinctive = 0, payloadEvidence = 0;
             for (uint8_t i = 0; i < m.count; ++i) {
                 const auto &a = m.fields[i];
                 const Field *b = nullptr;
@@ -139,10 +141,11 @@ class Association {
                         const int id = a.type == 255 || a.type == 22 ? 2 : a.type == 32 ? 4 : a.type == 33 ? 16 : 0;
                         if (a.type == 9 || ((a.type == 255 || a.type == 22 || a.type == 32 || a.type == 33) && j >= id))
                             ++distinctive;
+                        if ((a.type == 255 || a.type == 22 || a.type == 32 || a.type == 33) && j >= id) ++payloadEvidence;
                     }
                 }
             }
-            if (total < 6 || distinctive < 4 || !fields) continue;
+            if (total < 6 || distinctive < 4 || payloadEvidence < 4 || !fields) continue;
             const int content = static_cast<int>(same * 65 / total);
             const int coverage = static_cast<int>(fields * 20 / std::max(m.count, s.count));
             const int delta = static_cast<int>(std::fabs(rssi - signal));
@@ -167,6 +170,12 @@ public:
         return out;
     }
     void lock(bool value) { state.locked = value; }
+    void resume(uint32_t now) {
+        // A menu/GATT pause is missing coverage, not evidence of address rotation.
+        lastCadence = resumeTime = now;
+        grace = true;
+        for (auto &c : candidates) c = Match{};
+    }
     bool undo(uint32_t now) {
         if (!previous[0]) return false;
         std::memcpy(state.address, previous, 18);
@@ -182,6 +191,7 @@ public:
     Decision observe(const Packet &p) {
         if (equalAddress(p, state.address, state.addressType)) {
             if (p.response) return Decision::Current;
+            grace = false;
             const uint32_t gap = p.ms - lastCadence;
             if (gap >= 40 && gap <= 60000) {
                 if (cadence == 0) cadence = static_cast<float>(gap);
@@ -198,6 +208,7 @@ public:
             return Decision::Current;
         }
         const uint32_t age = p.ms - state.lastSeen;
+        if (grace && p.ms - resumeTime < state.timeout) return Decision::Ignore;
         if (state.locked || p.response || p.truncated || age < state.timeout || age > state.timeout * 4) return Decision::Ignore;
         const int points = score(decode(p.payload, p.length), p.rssi);
         if (points < 65) return Decision::Ignore;

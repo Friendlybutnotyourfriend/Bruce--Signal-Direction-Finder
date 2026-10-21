@@ -976,6 +976,7 @@ void huntTarget(const BleObservation &t) {
                 if (recon::capture.active()) recon::capture.end();
                 else recon::capture.begin("hunter", uiHunterSnap.target.address);
             }
+            association.resume(millis());
             recon::capture.event("resume", "hunter_menu");
             if (!startPassiveHunter()) { displayError("Scan restart failed", true); break; }
             draw = 0; warmSince = 0;
@@ -1235,7 +1236,7 @@ void drawSniffer(const SnifferState &s, uint8_t view, size_t &scroll, bool froze
     tft.drawCentreString(
         s.target.name[0] ? String(s.target.name) : String(s.target.address), tftWidth / 2, 42, 1
     );
-    const bool lost = s.initialized && millis() - s.lastSeen > LOST_MS;
+    const bool lost = s.initialized && millis() - s.lastSeen > associationStatus().timeout;
     tft.setTextColor(lost ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor);
     tft.drawCentreString(
         lost ? String("TARGET QUIET") : String(s.target.rssi) + " dBm  " + String(s.packets) + " pkt",
@@ -1445,7 +1446,7 @@ void runActiveScan() {
     snifferState.activeComplete = true;
     portEXIT_CRITICAL(&reconMux);
     recon::capture.event("active_scan_end");
-    if (!startPassiveSniffer()) displayWarning("Scan restart failed - Esc and re-enter", true);
+
 }
 String characteristicProperties(const NimBLERemoteCharacteristic *c) {
     String p;
@@ -1627,8 +1628,7 @@ void sniffTarget(const BleObservation &t) {
                 ) {
                     const GattResult r = enumerateGatt(s.target);
                     showGatt(r, s.target.name[0] ? String(s.target.name) : String(s.target.address));
-                    if (!startPassiveSniffer())
-                        displayWarning("Scan restart failed - Esc and re-enter", true);
+
                 }
             } else if (chosen == 2) {
                 view = (view + 1) % 5;
@@ -1644,6 +1644,7 @@ void sniffTarget(const BleObservation &t) {
                 if (recon::capture.active()) recon::capture.end();
                 else recon::capture.begin("sniffer", snifferState.target.address);
             }
+            association.resume(millis());
             recon::capture.event("resume", "sniffer_menu");
             if (!startPassiveSniffer()) { displayError("Scan restart failed", true); break; }
             delay(100);

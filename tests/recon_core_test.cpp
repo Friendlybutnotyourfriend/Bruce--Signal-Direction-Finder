@@ -57,6 +57,24 @@ int main() {
     assert(e.observe(packet(a,500,raw,-60,0)) == Decision::Ignore);
     auto response = packet(b,4000,raw); response.response = true;
     assert(e.observe(response) == Decision::Ignore);
+    std::vector<uint8_t> nameOnly{9,9,'M','y','B','e','a','c','o','n'};
+    e.reset(packet(a,100,nameOnly));
+    for (uint32_t t=4000;t<9000;t+=500) assert(e.observe(packet(b,t,nameOnly)) == Decision::Ignore);
+    e.reset(packet(a,100,raw));
+    e.resume(5000);
+    assert(e.status(5000).lastSeen == 100); // Menu pauses must not invent fresh packets.
+    assert(e.observe(packet(b,6000,raw)) == Decision::Ignore);
+    assert(e.observe(packet(a,6100,raw)) == Decision::Current);
+    // Deterministic malformed/crowded payload stress, also run under ASan/UBSan in CI.
+    uint32_t random = 0x12345678;
+    for (unsigned trial = 0; trial < 20000; ++trial) {
+        random = random * 1664525u + 1013904223u;
+        std::vector<uint8_t> bytes(random % 257);
+        for (auto &byte : bytes) { random = random * 1664525u + 1013904223u; byte = random >> 24; }
+        const auto decoded = decode(bytes.data(), bytes.size());
+        assert(decoded.count <= 16);
+        e.observe(packet(b, 10000 + trial * 100, bytes));
+    }
     response.response = false; response.truncated = true;
     assert(e.observe(response) == Decision::Ignore);
     const auto ok = compareAntenna(-60,-54,-60,1);

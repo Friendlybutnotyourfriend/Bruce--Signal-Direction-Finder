@@ -11,6 +11,14 @@ int main() {
     bool initialized = false;
     while (std::getline(std::cin, line)) {
         std::istringstream row(line);
+        if (!line.empty() && line[0] == '!') {
+            char marker; uint32_t time; std::string kind;
+            if (!(row >> marker >> time >> kind)) return 2;
+            if (kind == "resume") engine.resume(time);
+            if (kind == "lock_toggle") engine.lock(!engine.status(time).locked);
+            if (kind == "undo") engine.undo(time);
+            continue;
+        }
         recon::Packet p;
         std::string address, hex;
         unsigned type, response, truncated;

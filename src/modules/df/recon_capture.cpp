@@ -56,8 +56,8 @@ void Capture::drain(unsigned limit) {
         for (unsigned i = 0; i < row.length; ++i) { out += hex[row.payload[i] >> 4]; out += hex[row.payload[i] & 15]; }
         out += "\"}";
         line(out);
-        ++written;
         if (failed) break;
+        ++written;
     }
     if (millis() - lastFlush >= 1000) { file.flush(); lastFlush = millis(); }
 }

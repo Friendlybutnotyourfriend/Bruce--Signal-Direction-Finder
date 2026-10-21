@@ -8,6 +8,7 @@ void DfMenu::optionsMenu() {
     options.clear();
     options.push_back({"BLE Hunter", []() { bleHunterV3(); }});
     options.push_back({"BLE Sniffer", []() { bleSnifferV3(); }});
+    options.push_back({"BLE Sessions", []() { bleSessionReview(); }});
 
     addOptionToMainMenu();
     loopOptions(options, MENU_TYPE_SUBMENU, "Direction Finding", 0, false);

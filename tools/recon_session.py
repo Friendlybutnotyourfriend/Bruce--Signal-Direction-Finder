@@ -189,9 +189,11 @@ def main():
         target = args.target or rows[0]["target"]
         started, lines = False, []
         for row in rows:
+            if started and row.get("type") == "event" and row.get("kind") in {"resume", "lock_toggle", "undo"}:
+                lines.append(f'! {(row["us"] // 1000) & 0xffffffff} {row["kind"]}')
             if row.get("type") != "observation":
                 continue
-            if not started and row["address"] != target:
+            if not started and row["address"].lower() != target.lower():
                 continue
             started = True
             data = bytes.fromhex(row["payload"])

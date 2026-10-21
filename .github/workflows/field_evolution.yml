@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: field-evolution-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   regression:
@@ -27,6 +27,22 @@ jobs:
           /tmp/recon-test
           g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
           python -m unittest discover -s tests -p 'test_*.py'
+  extended-scan-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install platformio
+      - name: Compile full extended-advertising host configuration
+        run: platformio run -d lab/extended_scan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Extended-scan-probe-ELF-not-for-Launcher
+          path: lab/extended_scan/.pio/build/extended-scan-probe/firmware.elf
+          retention-days: 14
   build:
     name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest

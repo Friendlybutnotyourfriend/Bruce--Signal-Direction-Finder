@@ -177,7 +177,77 @@ void rf_antenna_compare(bool ble) {
 
 void rf_antenna_profiles() {
     if (!setupSdCard()) { displayWarning("Insert SD card", true); return; }
-    // Both measured profiles and normalized VNA imports are ordinary CSV, readable/exportable via Files.
     const String path = loopSD(SD, true, "CSV", "/AntennaProfiles");
-    if (!path.isEmpty()) viewFile(SD, path);
+    if (path.isEmpty()) return;
+    File file = SD.open(path, FILE_READ);
+    if (!file) return;
+    auto line = [&file]() {
+        String value; bool overflow = false;
+        while (file.available()) {
+            const char c = file.read();
+            if (c == '\n') break;
+            if (value.length() < 512) value += c; else overflow = true;
+        }
+        value.trim(); return overflow ? String() : value;
+    };
+    const String heading = line();
+    const bool vna = heading == "frequency_mhz,return_loss_db,vswr";
+    if (!vna && !heading.startsWith("uptime_ms,path,frequency_mhz,beacon,")) {
+        file.close(); displayWarning("Import VNA with recon_session.py", true); return;
+    }
+    struct Point { float frequency, value, spread; bool valid; };
+    static Point points[128];
+    unsigned count = 0, ignored = 0;
+    String radio;
+    while (file.available() && count < 128) {
+        if (check(EscPress)) { file.close(); return; }
+        const String text = line();
+        String cells[11]; unsigned cell = 0;
+        for (unsigned i = 0; i < text.length(); ++i) {
+            if (text[i] == ',') { if (++cell >= 11) break; }
+            else if (cell < 11) cells[cell] += text[i];
+        }
+        if (cell != (vna ? 2u : 10u)) { ++ignored; continue; }
+        const auto number = [](const String &value, float &out) {
+            char *end = nullptr; out = strtof(value.c_str(), &end);
+            return end != value.c_str() && *end == 0 && std::isfinite(out);
+        };
+        Point point{};
+        const bool pooledBle = !vna && cells[1] == "ESP32_BLE";
+        if (pooledBle) point.frequency = 0;
+        else if (!number(cells[vna ? 0 : 2], point.frequency) || point.frequency <= 0) { ++ignored; continue; }
+        if (!number(cells[vna ? 1 : 7], point.value) || !number(cells[vna ? 2 : 9], point.spread)) { ++ignored; continue; }
+        if (vna && (point.value <= 0 || point.spread < 1)) { ++ignored; continue; }
+        if (!vna) {
+            if (radio.isEmpty()) radio = cells[1];
+            if (radio != cells[1]) { ++ignored; continue; }
+            point.valid = cells[10] == "true";
+        } else point.valid = true;
+        points[count++] = point;
+    }
+    const bool capped = file.available();
+    file.close();
+    if (!count) { displayWarning("No valid profile points", true); return; }
+    std::sort(points, points + count, [](const Point &a, const Point &b) { return a.frequency < b.frequency; });
+    float lo = points[0].value, hi = lo;
+    for (unsigned i = 1; i < count; ++i) { lo = std::min(lo, points[i].value); hi = std::max(hi, points[i].value); }
+    if (hi - lo < 1) { lo -= .5f; hi += .5f; }
+    unsigned selected = 0;
+    while (!check(EscPress)) {
+        header(vna ? "VNA S11 / imported calibration" : "PROFILE / " + radio);
+        const auto &p = points[selected];
+        tft.drawString(p.frequency ? String(p.frequency, 3) + " MHz" : "BLE advertising channels pooled", 4, 23);
+        tft.drawString(vna ? "Return loss " + String(p.value, 2) + " dB  VSWR " + String(p.spread, 2) : "Relative " + String(p.value, 1) + " dB +/-" + String(p.spread, 1), 4, 38);
+        tft.drawString(vna ? "S11 matching; not radiation gain" : p.valid ? "Repeatable setup" : "INCONCLUSIVE sample", 4, 53);
+        for (unsigned i = 1; i < count; ++i) {
+            const auto x = [&](unsigned n) { return points[count-1].frequency > points[0].frequency ? 6 + static_cast<int>((points[n].frequency-points[0].frequency)*(tftWidth-12)/(points[count-1].frequency-points[0].frequency)) : 6 + n*(tftWidth-12)/std::max(1u,count-1); };
+            const auto y = [&](float value) { return 125 - static_cast<int>((value-lo)*50/(hi-lo)); };
+            tft.drawLine(x(i-1), y(points[i-1].value), x(i), y(points[i].value), points[i].valid ? TFT_GREEN : TFT_YELLOW);
+        }
+        tft.drawString("Y " + String(lo,1) + ".." + String(hi,1) + " dB  " + String(selected+1) + "/" + String(count), 4, 133);
+        tft.drawString(capped ? "128 point limit / ESC back" : ignored ? "Ignored " + String(ignored) + " invalid rows / ESC" : "Turn points / ESC back", 4, tftHeight-14);
+        if (check(PrevPress)) selected = (selected + count - 1) % count;
+        if (check(NextPress)) selected = (selected + 1) % count;
+        delay(40);
+    }
 }

@@ -321,7 +321,7 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
     }
 
     tft.setTextColor(resultColor(wifi.evidence, wifi.score), bruceConfig.bgColor);
-    String wifiLine = "WiFi " + String(wifi.uniqueNetworks) + " IDs " + String(wifi.score) + "%";
+    String wifiLine = "WiFi " + String(wifi.uniqueNetworks) + " IDs";
     if (wifi.peakChannel) {
         wifiLine += " peak " + String(channelFrequency(wifi.peakChannel)) + "MHz";
     }
@@ -329,7 +329,7 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
 
     tft.setTextColor(resultColor(ble.evidence, ble.score), bruceConfig.bgColor);
     const String bleLine =
-        "BLE " + String(ble.uniqueDevices) + " IDs " + String(ble.peakRssi) + "dBm " + String(ble.score) + "%";
+        "BLE " + String(ble.uniqueDevices) + " IDs " + String(ble.peakRssi) + "dBm";
     tft.drawString(bleLine, 4, 119);
 
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
