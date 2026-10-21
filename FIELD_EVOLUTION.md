@@ -36,7 +36,7 @@ The VNA importer accepts Touchstone 1.x S1P in RI/MA/DB formats, or CSV with `fr
 
 Decoded fields and UUIDs are normalized before comparison. Up to four observed layouts are retained, allowing alternating advertising formats. Byte positions that change in a layout stop contributing stable evidence. Empty payloads, UUID-only and name-only matches, malformed/truncated signatures and scan responses cannot elect a new target. Address type participates in matching.
 
-The loss window adapts to packet cadence (3â€“45 seconds). A change needs at least three observations separated by 100 ms, at least 600 ms of evidence, a score of 85/100 and a 10-point lead over rivals. A crowded candidate table abstains. Scores express heuristic evidence, not identity probabilities. Identical broadcasts remain fundamentally indistinguishable. Automatically associated targets remain hypotheses, and the original model is preserved to prevent chained model drift. Undo restores the previous address and locks it until explicitly unlocked.
+The loss window adapts to packet cadence (3–45 seconds). Automatic changes remain disabled until a repeat report from the selected target establishes a cadence. A change needs at least three observations separated by 100 ms, at least 600 ms of evidence, a score of 85/100 and a 10-point lead over rivals. A crowded candidate table abstains. Scores express heuristic evidence, not identity probabilities. Identical broadcasts remain fundamentally indistinguishable. Automatically associated targets remain hypotheses, and the original model is preserved to prevent chained model drift. Undo restores the previous address and locks it until explicitly unlocked.
 
 ## Extended advertising milestone
 

@@ -111,7 +111,7 @@ def render_html(summary, warnings, rows, destination):
         start, end = device["first_us"], device["last_us"]
         stride = max(1, len(selected)//2000)
         points = " ".join(f'{10 + 980*(r["us"]-start)/max(1,end-start):.1f},{145-(max(-110,min(-20,r["rssi"]))+110)*1.4:.1f}' for r in selected[::stride])
-        blocks.append(f'<details open><summary>{html.escape(key)} â€” {device["packets"]} reports, median {device["median_rssi_dbm"]} dBm</summary><svg viewBox="0 0 1000 160" role="img" aria-label="RSSI over elapsed time, minus 110 to minus 20 dBm"><polyline fill="none" stroke="#69dcca" stroke-width="2" points="{points}"/></svg><pre>{html.escape(json.dumps(device,indent=2))}</pre></details>')
+        blocks.append(f'<details open><summary>{html.escape(key)} — {device["packets"]} reports, median {device["median_rssi_dbm"]} dBm</summary><svg viewBox="0 0 1000 160" role="img" aria-label="RSSI over elapsed time, minus 110 to minus 20 dBm"><polyline fill="none" stroke="#69dcca" stroke-width="2" points="{points}"/></svg><pre>{html.escape(json.dumps(device,indent=2))}</pre></details>')
     blocks.append(f'<details><summary>Field and raw-byte changes ({len(summary["changes"])})</summary><pre>{html.escape(json.dumps(summary["changes"], indent=2))}</pre></details>')
     blocks.append(f'<details><summary>Bookmarks and events</summary><pre>{html.escape(json.dumps(summary["events"],indent=2))}</pre></details>')
     Path(destination).write_text("\n".join(blocks), encoding="utf-8")
