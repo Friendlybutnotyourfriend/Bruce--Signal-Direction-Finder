@@ -38,6 +38,19 @@ CYD28_TouchR touch(CYD28_DISPLAY_HOR_RES_MAX, CYD28_DISPLAY_VER_RES_MAX);
 ***************************************************************************************/
 SPIClass touchSPI;
 void _setup_gpio() {
+#if defined(FENRIR_EBYTE)
+    pinMode(CC1101_SS_PIN, OUTPUT);
+    pinMode(NRF24_SS_PIN, OUTPUT);
+    pinMode(FENRIR_PN532_CS_PIN, OUTPUT);
+    digitalWrite(CC1101_SS_PIN, HIGH);
+    digitalWrite(NRF24_SS_PIN, HIGH);
+    digitalWrite(FENRIR_PN532_CS_PIN, HIGH);
+
+    pinMode(FENRIR_E07_TX_EN_PIN, OUTPUT);
+    pinMode(FENRIR_E07_RX_EN_PIN, OUTPUT);
+    digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+    digitalWrite(FENRIR_E07_RX_EN_PIN, HIGH);
+#endif
 #ifndef HAS_CAPACITIVE_TOUCH // Capacitive Touchscreen uses I2C to communicate
     pinMode(XPT2046_CS, OUTPUT);
     digitalWrite(XPT2046_CS, HIGH);
@@ -235,7 +248,13 @@ void InputHandler(void) {
 ** Turns off the device (or try to)
 **********************************************************************/
 void powerOff() {
+#if defined(FENRIR_EBYTE)
+    digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+    digitalWrite(FENRIR_E07_RX_EN_PIN, LOW);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, LOW);
+#else
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, LOW);
+#endif
     esp_deep_sleep_start();
 }
 
