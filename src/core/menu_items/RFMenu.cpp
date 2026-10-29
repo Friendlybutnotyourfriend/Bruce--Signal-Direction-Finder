@@ -27,7 +27,9 @@ void RFMenu::optionsMenu() {
         {"Listen",          rf_listen                 }, // dev_eclipse
 #endif
         {"Bruteforce",      rf_bruteforce             }, // dev_eclipse
+#if !defined(FENRIR_EBYTE)
         {"Jammer",          [=]() { RFJammer(true); } },
+#endif
 #endif
         {"Config",          [this]() { configMenu(); }},
     };

@@ -3,6 +3,14 @@
 #include <Arduino.h>
 #include <interface.h>
 
+#if defined(FENRIR_EBYTE)
+static_assert(CC1101_SS_PIN == 27 && CC1101_GDO0_PIN == 22, "Fenrir CC1101 control pins must be retained");
+static_assert(TFT_SPI_MODE == 0, "Fenrir ST7789 requires the qualified SPI mode 0 setup");
+#if defined(USE_TFT_eSPI_TOUCH)
+#error "Fenrir XPT2046 uses a separate software SPI bus, not the display SPI bus"
+#endif
+#endif
+
 #if defined(HAS_CAPACITIVE_TOUCH)
 #if defined(TOUCH_GT911_I2C)
 #include "TouchDrvGT911.hpp"
@@ -38,6 +46,19 @@ CYD28_TouchR touch(CYD28_DISPLAY_HOR_RES_MAX, CYD28_DISPLAY_VER_RES_MAX);
 ***************************************************************************************/
 SPIClass touchSPI;
 void _setup_gpio() {
+#if defined(FENRIR_EBYTE)
+    pinMode(CC1101_SS_PIN, OUTPUT);
+    pinMode(NRF24_SS_PIN, OUTPUT);
+    pinMode(FENRIR_PN532_CS_PIN, OUTPUT);
+    digitalWrite(CC1101_SS_PIN, HIGH);
+    digitalWrite(NRF24_SS_PIN, HIGH);
+    digitalWrite(FENRIR_PN532_CS_PIN, HIGH);
+
+    pinMode(FENRIR_E07_TX_EN_PIN, OUTPUT);
+    pinMode(FENRIR_E07_RX_EN_PIN, OUTPUT);
+    digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+    digitalWrite(FENRIR_E07_RX_EN_PIN, HIGH);
+#endif
 #ifndef HAS_CAPACITIVE_TOUCH // Capacitive Touchscreen uses I2C to communicate
     pinMode(XPT2046_CS, OUTPUT);
     digitalWrite(XPT2046_CS, HIGH);
@@ -67,6 +88,21 @@ void _setup_gpio() {
 ** Description:   second stage gpio setup to make a few functions work
 ***************************************************************************************/
 void _post_setup_gpio() {
+#if defined(FENRIR_EBYTE)
+    // Repair the unset control pins saved by the earlier Fenrir build, including SD imports.
+    bool repaired = false;
+    if (bruceConfigPins.CC1101_bus.cs == GPIO_NUM_NC) {
+        bruceConfigPins.CC1101_bus.cs = (gpio_num_t)CC1101_SS_PIN;
+        repaired = true;
+    }
+    if (bruceConfigPins.CC1101_bus.io0 == GPIO_NUM_NC) {
+        bruceConfigPins.CC1101_bus.io0 = (gpio_num_t)CC1101_GDO0_PIN;
+        repaired = true;
+    }
+    if (repaired) bruceConfigPins.saveFile();
+    Serial.println("Fenrir board fix 1: ST7789 mode 0; XPT2046 software SPI 25/32/39/33");
+    Serial.printf("Fenrir CC1101: CS=%d GDO0=%d\n", bruceConfigPins.CC1101_bus.cs, bruceConfigPins.CC1101_bus.io0);
+#endif
 #if defined(USE_TFT_eSPI_TOUCH)
     pinMode(TOUCH_CS, OUTPUT);
     uint16_t calData[5];
@@ -235,7 +271,13 @@ void InputHandler(void) {
 ** Turns off the device (or try to)
 **********************************************************************/
 void powerOff() {
+#if defined(FENRIR_EBYTE)
+    digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+    digitalWrite(FENRIR_E07_RX_EN_PIN, LOW);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, LOW);
+#else
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, LOW);
+#endif
     esp_deep_sleep_start();
 }
 

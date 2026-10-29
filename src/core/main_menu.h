@@ -7,6 +7,7 @@
 #include "menu_items/ClockMenu.h"
 #include "menu_items/ConfigMenu.h"
 #include "menu_items/ConnectMenu.h"
+#include "menu_items/DfMenu.h"
 #include "menu_items/EthernetMenu.h"
 #include "menu_items/FMMenu.h"
 #include "menu_items/FileMenu.h"
@@ -23,6 +24,7 @@ class MainMenu {
 public:
     FileMenu fileMenu;
     BleMenu bleMenu;
+    DfMenu dfMenu;
     ClockMenu clockMenu;
     ConnectMenu connectMenu;
     ConfigMenu configMenu;
