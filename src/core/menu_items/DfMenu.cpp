@@ -1,12 +1,14 @@
 #include "DfMenu.h"
 
 #include "core/utils.h"
-#include "modules/df/ble_solo_df.h"
+#include "modules/df/ble_recon_v3.h"
 #include <globals.h>
 
 void DfMenu::optionsMenu() {
     options.clear();
-    options.push_back({"BLE Solo DF", []() { bleSoloDf(); }});
+    options.push_back({"BLE Hunter", []() { bleHunterV3(); }});
+    options.push_back({"BLE Sniffer", []() { bleSnifferV3(); }});
+    options.push_back({"BLE Sessions", []() { bleSessionReview(); }});
 
     addOptionToMainMenu();
     loopOptions(options, MENU_TYPE_SUBMENU, "Direction Finding", 0, false);
@@ -25,42 +27,10 @@ void DfMenu::drawIcon(float scale) {
     tft.drawCircle(iconCenterX, iconCenterY, radius, color);
     tft.drawCircle(iconCenterX, iconCenterY, innerRadius, color);
 
-    tft.drawWideLine(
-        iconCenterX - arm,
-        iconCenterY,
-        iconCenterX - innerRadius,
-        iconCenterY,
-        lineWidth,
-        color,
-        color
-    );
-    tft.drawWideLine(
-        iconCenterX + innerRadius,
-        iconCenterY,
-        iconCenterX + arm,
-        iconCenterY,
-        lineWidth,
-        color,
-        color
-    );
-    tft.drawWideLine(
-        iconCenterX,
-        iconCenterY - arm,
-        iconCenterX,
-        iconCenterY - innerRadius,
-        lineWidth,
-        color,
-        color
-    );
-    tft.drawWideLine(
-        iconCenterX,
-        iconCenterY + innerRadius,
-        iconCenterX,
-        iconCenterY + arm,
-        lineWidth,
-        color,
-        color
-    );
+    tft.drawWideLine(iconCenterX - arm, iconCenterY, iconCenterX - innerRadius, iconCenterY, lineWidth, color, color);
+    tft.drawWideLine(iconCenterX + innerRadius, iconCenterY, iconCenterX + arm, iconCenterY, lineWidth, color, color);
+    tft.drawWideLine(iconCenterX, iconCenterY - arm, iconCenterX, iconCenterY - innerRadius, lineWidth, color, color);
+    tft.drawWideLine(iconCenterX, iconCenterY + innerRadius, iconCenterX, iconCenterY + arm, lineWidth, color, color);
 
     const int scaledCenter = static_cast<int>(3 * scale);
     const int centerRadius = scaledCenter < 2 ? 2 : scaledCenter;
