@@ -28,6 +28,9 @@ jobs:
           - name: M5Stack Cardputer ADV
             env: m5stack-cardputer
             artifact: Mako-Antenna-Cardputer-ADV
+          - name: Smoochiee Board / Flux
+            env: smoochiee-board
+            artifact: Mako-Antenna-Smoochiee-Flux
 
     steps:
       - name: Checkout Mako branch
