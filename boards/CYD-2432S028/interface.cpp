@@ -3,6 +3,14 @@
 #include <Arduino.h>
 #include <interface.h>
 
+#if defined(FENRIR_EBYTE)
+static_assert(CC1101_SS_PIN == 27 && CC1101_GDO0_PIN == 22, "Fenrir CC1101 control pins must be retained");
+static_assert(TFT_SPI_MODE == 0, "Fenrir ST7789 requires the qualified SPI mode 0 setup");
+#if defined(USE_TFT_eSPI_TOUCH)
+#error "Fenrir XPT2046 uses a separate software SPI bus, not the display SPI bus"
+#endif
+#endif
+
 #if defined(HAS_CAPACITIVE_TOUCH)
 #if defined(TOUCH_GT911_I2C)
 #include "TouchDrvGT911.hpp"
@@ -80,6 +88,21 @@ void _setup_gpio() {
 ** Description:   second stage gpio setup to make a few functions work
 ***************************************************************************************/
 void _post_setup_gpio() {
+#if defined(FENRIR_EBYTE)
+    // Repair the unset control pins saved by the earlier Fenrir build, including SD imports.
+    bool repaired = false;
+    if (bruceConfigPins.CC1101_bus.cs == GPIO_NUM_NC) {
+        bruceConfigPins.CC1101_bus.cs = (gpio_num_t)CC1101_SS_PIN;
+        repaired = true;
+    }
+    if (bruceConfigPins.CC1101_bus.io0 == GPIO_NUM_NC) {
+        bruceConfigPins.CC1101_bus.io0 = (gpio_num_t)CC1101_GDO0_PIN;
+        repaired = true;
+    }
+    if (repaired) bruceConfigPins.saveFile();
+    Serial.println("Fenrir board fix 1: ST7789 mode 0; XPT2046 software SPI 25/32/39/33");
+    Serial.printf("Fenrir CC1101: CS=%d GDO0=%d\n", bruceConfigPins.CC1101_bus.cs, bruceConfigPins.CC1101_bus.io0);
+#endif
 #if defined(USE_TFT_eSPI_TOUCH)
     pinMode(TOUCH_CS, OUTPUT);
     uint16_t calData[5];
