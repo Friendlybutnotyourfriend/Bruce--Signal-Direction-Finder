@@ -31,6 +31,9 @@ jobs:
           - name: Smoochiee Board / Flux
             env: smoochiee-board
             artifact: Antenna-Classifier-Smoochiee-Flux
+          - name: Fenrir Ebyte RF-HAT
+            env: fenrir-ebyte
+            artifact: Antenna-Classifier-Fenrir-Ebyte
 
     steps:
       - name: Checkout Antenna Classifier branch
