@@ -271,12 +271,20 @@ bool initRfModule(String mode, float frequency) {
         // ELECHOUSE_cc1101.setSidle();
         // Serial.println("cc1101 setSidle();");
 
+#if defined(FENRIR_EBYTE)
+        if (frequency < 425.0f || frequency > 450.5f) {
+            Serial.println("Fenrir E07 frequency outside 425-450.5 MHz, setting 433.92");
+            frequency = 433.92f;
+            displayWarning("Fenrir E07: 425-450.5 MHz only", true);
+        }
+#else
         if (!((frequency >= 280 && frequency <= 350) || (frequency >= 387 && frequency <= 468) ||
               (frequency >= 779 && frequency <= 928))) {
             Serial.println("Invalid Frequency, setting default");
             frequency = 433.92;
             displayWarning("Wrong freq, set to 433.92", true);
         }
+#endif
         // else
         // ELECHOUSE_cc1101.setRxBW(812.50);  // reset to default
         ELECHOUSE_cc1101.setRxBW(256);      // narrow band for better accuracy
@@ -298,16 +306,28 @@ bool initRfModule(String mode, float frequency) {
 
         /* MEMO: cannot change other params after this is executed */
         if (mode == "tx") {
+#if defined(FENRIR_EBYTE)
+            digitalWrite(FENRIR_E07_RX_EN_PIN, LOW);
+            delayMicroseconds(50);
+            digitalWrite(FENRIR_E07_TX_EN_PIN, HIGH);
+#else
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, LOW);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, HIGH);
+#endif
             pinMode(bruceConfigPins.CC1101_bus.io0, OUTPUT);
             ELECHOUSE_cc1101.setPA(12); // set TxPower. The following settings are possible depending
             Serial.println("cc1101 setPA();");
             ELECHOUSE_cc1101.SetTx();
             Serial.println("cc1101 SetTx();");
         } else if (mode == "rx") {
+#if defined(FENRIR_EBYTE)
+            digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+            delayMicroseconds(50);
+            digitalWrite(FENRIR_E07_RX_EN_PIN, HIGH);
+#else
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, HIGH);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, LOW);
+#endif
             pinMode(bruceConfigPins.CC1101_bus.io0, INPUT);
             ELECHOUSE_cc1101.SetRx();
             Serial.println("cc1101 SetRx();");
@@ -348,8 +368,13 @@ void deinitRfModule() {
         }
         digitalWrite(bruceConfigPins.CC1101_bus.io0, LOW);
         digitalWrite(bruceConfigPins.CC1101_bus.cs, HIGH);
+#if defined(FENRIR_EBYTE)
+        digitalWrite(FENRIR_E07_TX_EN_PIN, LOW);
+        digitalWrite(FENRIR_E07_RX_EN_PIN, LOW);
+#else
         ioExpander.turnPinOnOff(IO_EXP_CC_RX, LOW);
         ioExpander.turnPinOnOff(IO_EXP_CC_TX, LOW);
+#endif
     } else digitalWrite(bruceConfigPins.rfTx, LED_OFF);
 }
 
@@ -373,10 +398,17 @@ void initCC1101once(SPIClass *SSPI) {
 }
 
 void setMHZ(float frequency) {
+#if defined(FENRIR_EBYTE)
+    if (frequency < 425.0f || frequency > 450.5f) {
+        frequency = 433.92f;
+        Serial.println("Fenrir E07 frequency outside 425-450.5 MHz");
+    }
+#else
     if (frequency > 928 || frequency < 280) {
         frequency = 433.92;
         Serial.println("Frequency out of band");
     }
+#endif
     if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) {
 #if defined(T_EMBED)
         static uint8_t antenna =
