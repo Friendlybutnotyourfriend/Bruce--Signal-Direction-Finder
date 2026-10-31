@@ -1,3 +1,4 @@
+#include "core/display.h"
 #include "core/powerSave.h"
 #include "core/utils.h"
 #include "modules/rf/rf_utils.h"
