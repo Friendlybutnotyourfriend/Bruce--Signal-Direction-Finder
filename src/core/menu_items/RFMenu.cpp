@@ -3,6 +3,7 @@
 #include "core/settings.h"
 #include "core/utils.h"
 #include "modules/rf/antenna_id.h"
+#include "modules/radio_control/radio_control.h"
 #include "modules/rf/record.h"
 #include "modules/rf/rf_bruteforce.h"
 #include "modules/rf/rf_jammer.h"
@@ -31,6 +32,7 @@ void RFMenu::optionsMenu() {
         {"Bruteforce",      rf_bruteforce             }, // dev_eclipse
         {"Jammer",          [=]() { RFJammer(true); } },
 #endif
+        {"Radio Control",  []() { RadioControl::ccMenu(); }},
         {"Config",          [this]() { configMenu(); }},
     };
     addOptionToMainMenu();

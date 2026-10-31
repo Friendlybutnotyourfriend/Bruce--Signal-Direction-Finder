@@ -1,4 +1,5 @@
 #include "rf_utils.h"
+#include "modules/radio_control/radio_control.h"
 #include "core/sd_functions.h"
 #include "core/settings.h"
 
@@ -293,6 +294,7 @@ bool initRfModule(String mode, float frequency) {
         // setting 0 (00), in RX.
         //.  3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
         ELECHOUSE_cc1101.setPktFormat(3);
+        RadioControl::applyCcModulationAndRate();
         setMHZ(frequency);
         Serial.println("cc1101 setMHZ(frequency);");
 
@@ -301,7 +303,8 @@ bool initRfModule(String mode, float frequency) {
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, LOW);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, HIGH);
             pinMode(bruceConfigPins.CC1101_bus.io0, OUTPUT);
-            ELECHOUSE_cc1101.setPA(12); // set TxPower. The following settings are possible depending
+            ELECHOUSE_cc1101.setPA(12); // existing Bruce default, retained unless profile is enabled
+            RadioControl::applyCcTxPower();
             Serial.println("cc1101 setPA();");
             ELECHOUSE_cc1101.SetTx();
             Serial.println("cc1101 SetTx();");
