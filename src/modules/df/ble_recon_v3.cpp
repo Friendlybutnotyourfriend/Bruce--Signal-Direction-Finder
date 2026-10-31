@@ -31,7 +31,8 @@ constexpr size_t MAX_CANDIDATES = 6;
 constexpr size_t MAX_HISTORY = 8;
 constexpr size_t MAX_LINES = 180;
 constexpr size_t MAX_GATT_LINES = 220;
-#if __has_include(<NimBLEExtAdvertising.h>)
+// Extended advertising getters are compiled only when NimBLE itself enables them.
+#if defined(CONFIG_BT_NIMBLE_EXT_ADV) && CONFIG_BT_NIMBLE_EXT_ADV
 #define BLE_RECON_EXT_ADV 1
 #endif
 enum IdentitySource : uint8_t { ID_MAC = 0, ID_NAME = 1, ID_MFG = 2 };
