@@ -147,9 +147,11 @@ void applyCcTxPower() {
 void applyNrfSettings(RF24 &radio) {
     const Profile &p = profile();
     if (!p.nrfEnabled) return;
+#if !defined(FENRIR_EBYTE_RX_ONLY)
     const rf24_pa_dbm_e powers[] = {RF24_PA_MIN, RF24_PA_LOW, RF24_PA_HIGH, RF24_PA_MAX};
-    const rf24_datarate_e rates[] = {RF24_250KBPS, RF24_1MBPS, RF24_2MBPS};
     radio.setPALevel(powers[p.nrfPower]);
+#endif
+    const rf24_datarate_e rates[] = {RF24_250KBPS, RF24_1MBPS, RF24_2MBPS};
     radio.setDataRate(rates[p.nrfRate]);
     radio.setChannel(p.nrfChannel);
 }
@@ -158,13 +160,19 @@ void ccMenu() {
     load();
     while (true) {
         const uint8_t modIdx = findIndex(CC_MOD, state.ccModulation);
+#if !defined(FENRIR_EBYTE_RX_ONLY)
         const uint8_t paIdx = findIndex(CC_POWER, state.ccPowerDbm);
+#endif
         std::vector<Option> items = {
             {String("Profile: ") + (state.ccEnabled ? "ON" : "OFF"), []() { state.ccEnabled = !state.ccEnabled; save(); }},
+#if defined(FENRIR_EBYTE_RX_ONLY)
+            {"TX PA: LOCKED (RX only)", []() {}},
+#else
             {String("PA: ") + String(state.ccPowerDbm) + " dBm", [paIdx]() {
                  state.ccPowerDbm = CC_POWER[(paIdx + 1) % (sizeof(CC_POWER) / sizeof(CC_POWER[0]))];
                  save();
              }},
+#endif
             {String("Mod: ") + CC_MOD_NAMES[modIdx], [modIdx]() {
                  state.ccModulation = CC_MOD[(modIdx + 1) % (sizeof(CC_MOD) / sizeof(CC_MOD[0]))];
                  save();
@@ -188,10 +196,14 @@ void nrfMenu() {
         const uint8_t chIdx = findIndex(NRF_CHANNELS, state.nrfChannel);
         std::vector<Option> items = {
             {String("Profile: ") + (state.nrfEnabled ? "ON" : "OFF"), []() { state.nrfEnabled = !state.nrfEnabled; save(); }},
+#if defined(FENRIR_EBYTE_RX_ONLY)
+            {"TX PA: LOCKED (RX only)", []() {}},
+#else
             {String("PA: ") + NRF_POWER_NAMES[state.nrfPower], []() {
                  state.nrfPower = (state.nrfPower + 1) % 4;
                  save();
              }},
+#endif
             {String("Rate: ") + NRF_RATE_NAMES[state.nrfRate], []() {
                  state.nrfRate = (state.nrfRate + 1) % 3;
                  save();
