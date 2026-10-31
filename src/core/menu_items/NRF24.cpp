@@ -12,10 +12,12 @@ void NRF24Menu::optionsMenu() {
     options.push_back({"Information", nrf_info});
     options.push_back({"Radio Control", []() { RadioControl::nrfMenu(); }});
     options.push_back({"Spectrum", nrf_spectrum});
-    #if !defined(LITE_VERSION)
+    #if !defined(LITE_VERSION) && !defined(FENRIR_EBYTE_RX_ONLY)
     options.push_back({"MouseJack", nrf_mousejack});
     #endif
+    #if !defined(FENRIR_EBYTE_RX_ONLY)
     options.push_back({"NRF Jammer", nrf_jammer});
+    #endif
 
 #if defined(ARDUINO_M5STICK_C_PLUS) || defined(ARDUINO_M5STICK_C_PLUS2)
     options.push_back({"Config pins", [this]() { configMenu(); }});

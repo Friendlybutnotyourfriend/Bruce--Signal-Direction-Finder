@@ -14,6 +14,18 @@
 #include "modules/rf/rf_waterfall.h"
 
 void RFMenu::optionsMenu() {
+#if defined(FENRIR_EBYTE_RX_ONLY)
+    options = {
+        {"Spectrum",        rf_spectrum},
+#if !defined(LITE_VERSION)
+        {"Antenna ID",      rf_antenna_id},
+        {"RSSI Spectrum",   rf_CC1101_rssi},
+        {"Spectogram",      rf_waterfall},
+#endif
+        {"Radio Control",   []() { RadioControl::ccMenu(); }},
+        {"Config",          [this]() { configMenu(); }},
+    };
+#else
     options = {
         {"Scan/copy",       [=]() { RFScan(); }       },
 #if !defined(LITE_VERSION)
@@ -35,6 +47,7 @@ void RFMenu::optionsMenu() {
         {"Radio Control",  []() { RadioControl::ccMenu(); }},
         {"Config",          [this]() { configMenu(); }},
     };
+#endif
     addOptionToMainMenu();
 
     delay(200);

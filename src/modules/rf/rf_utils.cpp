@@ -218,6 +218,12 @@ const std::vector<KeeloqKey> &KeeloqKeystore::get_keys() { return keys; }
 bool initRfModule(String mode, float frequency) {
     // use default frequency if no one is passed
     if (!frequency) frequency = bruceConfigPins.rfFreq;
+#if defined(FENRIR_EBYTE_RX_ONLY)
+    if (mode == "tx" || frequency < 425.0f || frequency > 450.5f) {
+        Serial.println("[Fenrir] CC1101 TX disabled; valid RX range 425-450.5 MHz");
+        return false;
+    }
+#endif
 
     if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) { // CC1101 in use
         if (bruceConfigPins.CC1101_bus.mosi == (gpio_num_t)TFT_MOSI &&
@@ -312,6 +318,11 @@ bool initRfModule(String mode, float frequency) {
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, HIGH);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, LOW);
             pinMode(bruceConfigPins.CC1101_bus.io0, INPUT);
+#if defined(FENRIR_EBYTE_RX_ONLY)
+            // The E07 antenna receive amplifier is independent of the CC1101 registers.
+            digitalWrite(FENRIR_E07_TX_EN, LOW);
+            digitalWrite(FENRIR_E07_RX_EN, HIGH);
+#endif
             ELECHOUSE_cc1101.SetRx();
             Serial.println("cc1101 SetRx();");
         }
@@ -344,6 +355,10 @@ bool initRfModule(String mode, float frequency) {
 }
 
 void deinitRfModule() {
+#if defined(FENRIR_EBYTE_RX_ONLY)
+    digitalWrite(FENRIR_E07_RX_EN, LOW);
+    digitalWrite(FENRIR_E07_TX_EN, LOW);
+#endif
     if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) {
         if (cc1101_spi_ready) {
             ELECHOUSE_cc1101.setSidle();
@@ -376,6 +391,12 @@ void initCC1101once(SPIClass *SSPI) {
 }
 
 void setMHZ(float frequency) {
+#if defined(FENRIR_EBYTE_RX_ONLY)
+    if (frequency < 425.0f || frequency > 450.5f) {
+        Serial.println("[Fenrir] blocked CC1101 tune outside E07 front-end range");
+        return;
+    }
+#endif
     if (frequency > 928 || frequency < 280) {
         frequency = 433.92;
         Serial.println("Frequency out of band");
