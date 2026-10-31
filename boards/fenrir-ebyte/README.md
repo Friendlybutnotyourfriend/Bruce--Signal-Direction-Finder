@@ -16,8 +16,10 @@ Hardware maps from the board Development Interface Manual v1.0 (2026-08-29):
 This is a **compile-test and receive-only bring-up**. E07 is limited to
 425–450.5 MHz. RX_EN and TX_EN are never asserted together. E07 TX is
 blocked in the shared RF initialiser, the normal TX menus are hidden, and
-no new PA/CW/noise/jammer modes are enabled. The nRF24 menu exposes
-spectrum and read-only diagnostics; TX-oriented menu options are hidden.
+no new PA/CW/noise/jammer modes are enabled. The Fenrir RF menu exposes a dedicated 425–450.5 MHz RSSI scanner,
+rather than the incompatible 300/868 MHz sweep and Antenna ID tools.
+The nRF24 menu exposes spectrum and read-only diagnostics; TX-oriented
+menu options are hidden.
 
 The integrated RF settings and CS pins are restored after loading an old
 Bruce pin configuration. GPIO0 is not treated as a wake/OK button; the

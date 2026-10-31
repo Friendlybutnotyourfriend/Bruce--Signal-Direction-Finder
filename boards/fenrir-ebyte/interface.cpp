@@ -1,5 +1,6 @@
 #include "core/powerSave.h"
 #include "core/utils.h"
+#include "modules/rf/rf_utils.h"
 #include <Arduino.h>
 #include <interface.h>
 #include "CYD28_TouchscreenR.h"
@@ -99,3 +100,43 @@ void powerOff() {
 }
 
 void checkReboot() {}
+
+void fenrirRssiScan() {
+    // Only scan within the E07 425-450.5 MHz front-end specification.
+    constexpr int points = 52;
+    constexpr float lowMHz = 425.0f;
+    constexpr float stepMHz = 0.5f;
+    if (!initRfModule("rx", lowMHz)) {
+        displayError("E07 RX unavailable", true);
+        return;
+    }
+    while (!check(EscPress)) {
+        tft.fillScreen(bruceConfig.bgColor);
+        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+        tft.drawCentreString("E07 RSSI 425-450.5 MHz", tftWidth / 2, 10, 1);
+        const int bottom = tftHeight - 38;
+        const int plotHeight = tftHeight - 76;
+        tft.drawFastHLine(4, bottom, tftWidth - 8, TFT_DARKGREY);
+        int strongest = -200;
+        float strongestMHz = lowMHz;
+        for (int i = 0; i < points; ++i) {
+            if (check(EscPress)) break;
+            const float mhz = lowMHz + i * stepMHz;
+            setMHZ(mhz);
+            delay(8);
+            const int rssi = static_cast<int>(ELECHOUSE_cc1101.getRssi());
+            if (rssi > strongest) {
+                strongest = rssi;
+                strongestMHz = mhz;
+            }
+            const int height = constrain(map(rssi, -120, -30, 0, plotHeight), 0, plotHeight);
+            const int x = 4 + i * (tftWidth - 8) / points;
+            tft.drawFastVLine(x, bottom - height, height, bruceConfig.priColor);
+        }
+        tft.drawString(String("Peak ") + String(strongestMHz, 1) + " MHz  " +
+                       String(strongest) + " dBm", 8, tftHeight - 30, 1);
+        tft.drawCentreString("Esc to exit", tftWidth / 2, tftHeight - 14, 1);
+        delay(60);
+    }
+    deinitRfModule();
+}
