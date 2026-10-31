@@ -39,10 +39,18 @@ void _post_setup_gpio() {
     bruceConfigPins.NRF24_bus.mosi = GPIO_NUM_23;
     bruceConfigPins.NRF24_bus.cs = GPIO_NUM_26;
     bruceConfigPins.NRF24_bus.io0 = GPIO_NUM_16;
+    // Reassert shared SD/radio SPI if a saved pin profile came from a different CYD.
+    bruceConfigPins.SDCARD_bus.sck = GPIO_NUM_18;
+    bruceConfigPins.SDCARD_bus.miso = GPIO_NUM_19;
+    bruceConfigPins.SDCARD_bus.mosi = GPIO_NUM_23;
+    bruceConfigPins.SDCARD_bus.cs = GPIO_NUM_5;
     bruceConfigPins.rfModule = CC1101_SPI_MODULE;
     if (bruceConfigPins.rfFreq < 425.0f || bruceConfigPins.rfFreq > 450.5f)
         bruceConfigPins.rfFreq = 433.92f;
 
+    // Saved Classic CYD themes may request inversion on the ST7789; enforce INVOFF.
+    bruceConfig.colorInverted = 0;
+    tft.invertDisplay(false);
     pinMode(TFT_BL, OUTPUT);
     ledcAttach(TFT_BL, TFT_BRIGHT_FREQ, TFT_BRIGHT_Bits);
     ledcWrite(TFT_BL, 255);
