@@ -12,6 +12,7 @@ on:
       - "src/modules/NRF24/nrf_common.cpp"
       - ".github/workflows/radio_control_ci.yml"
       - "platformio.ini"
+      - "src/modules/df/ble_recon_v3.cpp"
   workflow_dispatch:
 
 jobs:
