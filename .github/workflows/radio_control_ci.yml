@@ -67,3 +67,11 @@ jobs:
           path: .pio/build/${{ matrix.environment }}/firmware.bin
           if-no-files-found: error
           retention-days: 7
+      - name: Save merged T-Embed image for Launcher
+        if: ${{ success() && matrix.environment == 'lilygo-t-embed-cc1101' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-t-embed-launcher-merged
+          path: Bruce-lilygo-t-embed-cc1101.bin
+          if-no-files-found: error
+          retention-days: 7
