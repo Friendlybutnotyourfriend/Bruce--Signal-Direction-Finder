@@ -75,3 +75,11 @@ jobs:
           path: Bruce-lilygo-t-embed-cc1101.bin
           if-no-files-found: error
           retention-days: 7
+      - name: Save merged NM-CYD-C5 image for Launcher
+        if: ${{ success() && matrix.environment == 'nm-cyd-c5' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-nm-cyd-c5-launcher-merged
+          path: Bruce-nm-cyd-c5.bin
+          if-no-files-found: error
+          retention-days: 7
