@@ -333,5 +333,4 @@ def prepare_www_files():
     print(f"[DONE] Gzipped files embedded into {HEADER_FILE}")
 
 
-patch_ble_hunter_ui()
 prepare_www_files()

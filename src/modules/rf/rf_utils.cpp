@@ -7,6 +7,10 @@
 const uint64_t CRC64_ECMA_POLY = 0x42F0E1EBA9EA3693; // Polynomial for CRC-64-ECMA
 const uint64_t CRC64_ECMA_INIT = 0xFFFFFFFFFFFFFFFF; // Initial value
 
+#if defined(FENRIR_EBYTE)
+const int range_limits[4][2] = {{27, 45}, {27, 45}, {27, 45}, {27, 45}};
+const char *subghz_frequency_ranges[] = {"E07 presets", "E07 presets", "E07 presets", "E07 presets"};
+#else
 const int range_limits[4][2] = {
     {0,  23}, // 300-348 MHz
     {24, 47}, // 387-464 MHz
@@ -14,6 +18,7 @@ const int range_limits[4][2] = {
     {0,  56}  // All ranges
 };
 const char *subghz_frequency_ranges[] = {"300-348 MHz", "387-464 MHz", "779-928 MHz", "All ranges"};
+#endif
 const float subghz_frequency_list[] = {
     /* 300 - 348 MHz Frequency Range */
     300.000f,
@@ -218,9 +223,9 @@ const std::vector<KeeloqKey> &KeeloqKeystore::get_keys() { return keys; }
 bool initRfModule(String mode, float frequency) {
     // use default frequency if no one is passed
     if (!frequency) frequency = bruceConfigPins.rfFreq;
-#if defined(FENRIR_EBYTE_RX_ONLY)
-    if (mode == "tx" || frequency < 425.0f || frequency > 450.5f) {
-        Serial.println("[Fenrir] CC1101 TX disabled; valid RX range 425-450.5 MHz");
+#if defined(FENRIR_EBYTE)
+    if (frequency < 425.0f || frequency > 450.5f) {
+        Serial.println("[Fenrir] valid E07 range 425-450.5 MHz");
         return false;
     }
 #endif
@@ -306,6 +311,11 @@ bool initRfModule(String mode, float frequency) {
 
         /* MEMO: cannot change other params after this is executed */
         if (mode == "tx") {
+#if defined(FENRIR_EBYTE)
+            digitalWrite(FENRIR_E07_RX_EN, LOW);
+            delayMicroseconds(50);
+            digitalWrite(FENRIR_E07_TX_EN, HIGH);
+#endif
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, LOW);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, HIGH);
             pinMode(bruceConfigPins.CC1101_bus.io0, OUTPUT);
@@ -318,9 +328,10 @@ bool initRfModule(String mode, float frequency) {
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, HIGH);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, LOW);
             pinMode(bruceConfigPins.CC1101_bus.io0, INPUT);
-#if defined(FENRIR_EBYTE_RX_ONLY)
+#if defined(FENRIR_EBYTE)
             // The E07 antenna receive amplifier is independent of the CC1101 registers.
             digitalWrite(FENRIR_E07_TX_EN, LOW);
+            delayMicroseconds(50);
             digitalWrite(FENRIR_E07_RX_EN, HIGH);
 #endif
             ELECHOUSE_cc1101.SetRx();
@@ -355,7 +366,7 @@ bool initRfModule(String mode, float frequency) {
 }
 
 void deinitRfModule() {
-#if defined(FENRIR_EBYTE_RX_ONLY)
+#if defined(FENRIR_EBYTE)
     digitalWrite(FENRIR_E07_RX_EN, LOW);
     digitalWrite(FENRIR_E07_TX_EN, LOW);
 #endif
@@ -391,7 +402,7 @@ void initCC1101once(SPIClass *SSPI) {
 }
 
 void setMHZ(float frequency) {
-#if defined(FENRIR_EBYTE_RX_ONLY)
+#if defined(FENRIR_EBYTE)
     if (frequency < 425.0f || frequency > 450.5f) {
         Serial.println("[Fenrir] blocked CC1101 tune outside E07 front-end range");
         return;
@@ -433,7 +444,14 @@ void setMHZ(float frequency) {
             vTaskDelay(10 / portTICK_PERIOD_MS); // time to settle the antenna signal
         }
 #endif
+#if defined(FENRIR_EBYTE)
+        const bool resumeRx = ELECHOUSE_cc1101.getMode() == 2;
+        ELECHOUSE_cc1101.setSidle();
+#endif
         ELECHOUSE_cc1101.setMHZ(frequency);
+#if defined(FENRIR_EBYTE)
+        if (resumeRx) ELECHOUSE_cc1101.SetRx();
+#endif
     }
 }
 
@@ -542,7 +560,12 @@ bool setMHZMenu() {
         int ind = 0;
         int arraySize = sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]);
         for (int i = 0; i < arraySize; i++) {
+#if defined(FENRIR_EBYTE)
+            if (subghz_frequency_list[i] < 425.0f || subghz_frequency_list[i] > 450.5f) continue;
+            if (abs(subghz_frequency_list[i] - bruceConfigPins.rfFreq) < 0.1f) ind = options.size();
+#else
             if (subghz_frequency_list[i] - bruceConfigPins.rfFreq < 0.1) ind = i;
+#endif
             String tmp = String(subghz_frequency_list[i], 2) + "Mhz";
             options.push_back({tmp.c_str(), [=]() { bruceConfigPins.rfFreq = subghz_frequency_list[i]; }});
         }
@@ -560,10 +583,14 @@ void rf_range_selection(float currentFrequency) {
         {String("Fixed [" + String(bruceConfigPins.rfFreq) + "]").c_str(),
          [=]() { bruceConfigPins.setRfFreq(bruceConfigPins.rfFreq, 2); }                                               },
         {String("Choose Fixed").c_str(),                                   [&]() { option = 1; }                       },
+#if defined(FENRIR_EBYTE)
+        {"E07 presets", []() { bruceConfigPins.setRfScanRange(1); }},
+#else
         {subghz_frequency_ranges[0],                                       [=]() { bruceConfigPins.setRfScanRange(0); }},
         {subghz_frequency_ranges[1],                                       [=]() { bruceConfigPins.setRfScanRange(1); }},
         {subghz_frequency_ranges[2],                                       [=]() { bruceConfigPins.setRfScanRange(2); }},
         {subghz_frequency_ranges[3],                                       [=]() { bruceConfigPins.setRfScanRange(3); }},
+#endif
     };
 
     loopOptions(options);
@@ -574,11 +601,14 @@ void rf_range_selection(float currentFrequency) {
         int ind = 0;
         int arraySize = sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]);
         for (int i = 0; i < arraySize; i++) {
+#if defined(FENRIR_EBYTE)
+            if (subghz_frequency_list[i] < 425.0f || subghz_frequency_list[i] > 450.5f) continue;
+#endif
             String tmp = String(subghz_frequency_list[i], 2) + "Mhz";
             options.push_back({tmp.c_str(), [=]() {
                                    bruceConfigPins.setRfFreq(subghz_frequency_list[i], 2);
                                }});
-            if (int(currentFrequency * 100) == int(subghz_frequency_list[i] * 100)) ind = i;
+            if (int(currentFrequency * 100) == int(subghz_frequency_list[i] * 100)) ind = options.size() - 1;
         }
         loopOptions(options, ind);
         options.clear();

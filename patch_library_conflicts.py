@@ -7,6 +7,21 @@ print("Patching library conflicts with ESP32 core...")
 # List of conflicts: (file_pattern, search_pattern, replace_pattern)
 conflicts = [
     (
+        ".pio/libdeps/*/ESP Chameleon Ultra/src/chameleonUltra.cpp",
+        r'\bscanCallbacks\b',
+        'ChameleonScanCallbacks'
+    ),
+    (
+        ".pio/libdeps/*/ESP PN32BLE/src/pn532_ble.cpp",
+        r'\bscanCallbacks\b',
+        'Pn532ScanCallbacks'
+    ),
+    (
+        ".pio/libdeps/*/NimBLE-Arduino/src/nimble/nimble/host/src/ble_gap.c",
+        r'extern int is_ble_hs_resolv_enabled\(void\);',
+        'extern uint8_t is_ble_hs_resolv_enabled(void);'
+    ),
+    (
         ".pio/libdeps/*/ESP8266SAM/src/render.c",
         r'static void yield\(\)',
         'static void sam_yield()'

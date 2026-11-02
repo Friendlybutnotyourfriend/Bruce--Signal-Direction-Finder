@@ -13,14 +13,18 @@
 #include "modules/rf/rf_spectrum.h"
 #include "modules/rf/rf_waterfall.h"
 
-#if defined(FENRIR_EBYTE_RX_ONLY)
+#if defined(FENRIR_EBYTE)
 void fenrirRssiScan();
 #endif
 
 void RFMenu::optionsMenu() {
-#if defined(FENRIR_EBYTE_RX_ONLY)
+#if defined(FENRIR_EBYTE)
     options = {
+        {"Scan/copy", []() { RFScan(); }},
+        {"Record RAW", rf_raw_record},
+        {"Custom SubGhz", sendCustomRF},
         {"E07 narrowband RSSI", fenrirRssiScan},
+        {"Antenna ID", rf_antenna_id},
         {"Radio Control", []() { RadioControl::ccMenu(); }},
         {"Config", [this]() { configMenu(); }},
     };

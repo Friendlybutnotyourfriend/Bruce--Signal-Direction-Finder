@@ -17,7 +17,7 @@ void _setup_gpio() {
     digitalWrite(FENRIR_E07_RX_EN, LOW);
     digitalWrite(FENRIR_E07_TX_EN, LOW);
 
-    const uint8_t chipSelects[] = {27, 26, 5, 33, 15};
+    const uint8_t chipSelects[] = {27, 26, 17, 5, 33, 15};
     for (uint8_t cs : chipSelects) {
         pinMode(cs, OUTPUT);
         digitalWrite(cs, HIGH);
@@ -103,6 +103,7 @@ void InputHandler(void) {
 }
 
 void powerOff() {
+    deinitRfModule();
     // Use touch IRQ instead of GPIO0; GPIO0 controls E07 RX amplifier.
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, LOW);
     esp_deep_sleep_start();
