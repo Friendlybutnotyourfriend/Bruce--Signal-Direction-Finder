@@ -25,6 +25,8 @@ void RFMenu::optionsMenu() {
         {"Custom SubGhz", sendCustomRF},
         {"E07 narrowband RSSI", fenrirRssiScan},
         {"Antenna ID", rf_antenna_id},
+        {"Bruteforce", rf_bruteforce},
+        {"Jammer", []() { RFJammer(true); }},
         {"Radio Control", []() { RadioControl::ccMenu(); }},
         {"Config", [this]() { configMenu(); }},
     };

@@ -54,6 +54,9 @@ void _post_setup_gpio() {
     pinMode(TFT_BL, OUTPUT);
     ledcAttach(TFT_BL, TFT_BRIGHT_FREQ, TFT_BRIGHT_Bits);
     ledcWrite(TFT_BL, 255);
+    const int battery = getBattery();
+    Serial.printf("[Fenrir] Battery GPIO34: %lu mV, estimated %d%%\n",
+                  static_cast<unsigned long>(analogReadMilliVolts(34) * 2), battery);
 }
 
 void _setBrightness(uint8_t brightval) {

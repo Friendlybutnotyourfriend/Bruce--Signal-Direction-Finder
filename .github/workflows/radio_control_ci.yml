@@ -12,7 +12,19 @@ on:
       - "src/modules/NRF24/nrf_common.cpp"
       - ".github/workflows/radio_control_ci.yml"
       - "platformio.ini"
-      - "src/modules/df/ble_recon_v3.cpp"
+      - "src/modules/df/**"
+      - "src/modules/rf/**"
+      - "src/modules/badusb_ble/**"
+      - "src/core/menu_items/BleMenu.cpp"
+      - "src/core/menu_items/DfMenu.cpp"
+      - "src/core/utils.cpp"
+      - "src/core/settings.cpp"
+      - "include/precompiler_flags.h"
+      - "patch*.py"
+      - "build.py"
+      - "tests/recon_core_test.cpp"
+      - "tests/test_sessions.py"
+      - "tools/recon*"
       - "boards/fenrir-ebyte/**"
   workflow_dispatch:
 
@@ -40,7 +52,6 @@ jobs:
 
   compatibility:
     name: Compile ${{ matrix.environment }}
-    needs: compile
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -65,6 +76,14 @@ jobs:
         with:
           name: radio-control-${{ matrix.environment }}
           path: .pio/build/${{ matrix.environment }}/firmware.bin
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save merged Fenrir image
+        if: ${{ success() && matrix.environment == 'fenrir-ebyte' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-fenrir-ebyte-merged
+          path: Bruce-fenrir-ebyte.bin
           if-no-files-found: error
           retention-days: 7
       - name: Save merged T-Embed image for Launcher

@@ -445,12 +445,13 @@ void setMHZ(float frequency) {
         }
 #endif
 #if defined(FENRIR_EBYTE)
-        const bool resumeRx = ELECHOUSE_cc1101.getMode() == 2;
+        const uint8_t previousMode = ELECHOUSE_cc1101.getMode();
         ELECHOUSE_cc1101.setSidle();
 #endif
         ELECHOUSE_cc1101.setMHZ(frequency);
 #if defined(FENRIR_EBYTE)
-        if (resumeRx) ELECHOUSE_cc1101.SetRx();
+        if (previousMode == 2) ELECHOUSE_cc1101.SetRx();
+        else if (previousMode == 1) ELECHOUSE_cc1101.SetTx();
 #endif
     }
 }
