@@ -422,6 +422,10 @@ void RFJammer::run_sweep_jammer() {
     float baseFreq = bruceConfigPins.rfFreq;
     float sweepMin = baseFreq - 5.0f;
     float sweepMax = baseFreq + 5.0f;
+#if defined(FENRIR_EBYTE)
+    sweepMin = max(sweepMin, 425.0f);
+    sweepMax = min(sweepMax, 450.5f);
+#endif
     float sweepStep = 0.05f; // 50kHz steps for finer coverage
     float currentFreq = sweepMin;
     bool sweepForward = true;
@@ -434,12 +438,12 @@ void RFJammer::run_sweep_jammer() {
     uint32_t lastDisplayTime = startTime;
 
     // Start TX on first frequency
-    ELECHOUSE_cc1101.setMHZ(currentFreq);
+    setMHZ(currentFreq);
     digitalWrite(nTransmitterPin, HIGH);
 
     while (sendRF) {
         // Sweep frequency
-        ELECHOUSE_cc1101.setMHZ(currentFreq);
+        setMHZ(currentFreq);
 
         // TX burst at each frequency — 40 pulses with tight timing
         for (int burst = 0; burst < 40 && sendRF; burst++) {
@@ -497,7 +501,7 @@ void RFJammer::run_sweep_jammer() {
 
     digitalWrite(nTransmitterPin, LOW);
     // Restore original frequency
-    ELECHOUSE_cc1101.setMHZ(baseFreq);
+    setMHZ(baseFreq);
 }
 
 void RFJammer::send_optimized_pulse(int width) {

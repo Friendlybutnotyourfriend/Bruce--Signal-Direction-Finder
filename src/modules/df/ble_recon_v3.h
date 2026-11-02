@@ -5,5 +5,6 @@
 // Provides improved BLE Hunter continuity tracking and BLE Sniffer inspection.
 void bleHunterV3();
 void bleSnifferV3();
+void bleSessionReview();
 
 #endif

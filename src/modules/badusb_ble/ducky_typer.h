@@ -17,7 +17,7 @@ extern HIDInterface *hid_usb;
 extern HIDInterface *hid_ble;
 extern uint8_t _Ask_for_restart;
 
-struct DuckyCommand;
+struct DuckyParserCommand;
 struct DuckyCombination;
 
 // Start badUSB or badBLE ducky runner
@@ -38,7 +38,7 @@ void ducky_keyboard(HIDInterface *&hid, bool ble = false);
 // Send media commands through BLE or USB HID
 void MediaCommands(HIDInterface *hid, bool ble = false);
 
-DuckyCommand *findDuckyCommand(const char *cmd);
+DuckyParserCommand *findDuckyCommand(const char *cmd);
 DuckyCombination *findDuckyCombination(const char *cmd);
 
 void sendAltChar(HIDInterface *hid, uint8_t charCode);

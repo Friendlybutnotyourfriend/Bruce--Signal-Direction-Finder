@@ -18,6 +18,11 @@ constexpr int RSSI_MAX = -35;
 constexpr int MIN_PROMINENCE_DB = 4;
 constexpr int MIN_EVIDENCE_RSSI = -100;
 
+#if defined(FENRIR_EBYTE)
+constexpr float BAND_433[] = {
+    425.0f, 427.5f, 430.0f, 432.0f, 433.92f, 435.0f, 438.0f, 440.0f, 445.0f, 448.0f, 450.5f
+};
+#else
 constexpr float BAND_315[] = {300.0f, 305.0f, 310.0f, 315.0f, 320.0f, 330.0f, 340.0f, 348.0f};
 constexpr float BAND_433[] = {
     387.0f, 400.0f, 410.0f, 418.0f, 425.0f, 430.0f, 433.92f, 438.0f, 445.0f, 458.0f, 464.0f
@@ -25,6 +30,7 @@ constexpr float BAND_433[] = {
 constexpr float BAND_900[] = {
     779.0f, 800.0f, 820.0f, 850.0f, 868.3f, 880.0f, 900.0f, 915.0f, 925.0f, 928.0f
 };
+#endif
 
 struct BandDefinition {
     const char *label;
@@ -33,15 +39,23 @@ struct BandDefinition {
 };
 
 constexpr BandDefinition BANDS[] = {
+#if defined(FENRIR_EBYTE)
+    {"425-450.5", BAND_433, static_cast<uint8_t>(sizeof(BAND_433) / sizeof(BAND_433[0]))},
+#else
     {"300-348", BAND_315, static_cast<uint8_t>(sizeof(BAND_315) / sizeof(BAND_315[0]))},
     {"387-464", BAND_433, static_cast<uint8_t>(sizeof(BAND_433) / sizeof(BAND_433[0]))},
     {"779-928", BAND_900, static_cast<uint8_t>(sizeof(BAND_900) / sizeof(BAND_900[0]))},
+#endif
 };
 
 constexpr uint8_t BAND_COUNT = sizeof(BANDS) / sizeof(BANDS[0]);
 constexpr uint8_t MAX_POINTS = sizeof(BAND_433) / sizeof(BAND_433[0]);
 constexpr uint16_t TOTAL_POINTS_PER_PASS =
+#if defined(FENRIR_EBYTE)
+    sizeof(BAND_433) / sizeof(float);
+#else
     (sizeof(BAND_315) + sizeof(BAND_433) + sizeof(BAND_900)) / sizeof(float);
+#endif
 
 struct BandResult {
     int peakRssi = RSSI_MIN;
@@ -70,7 +84,11 @@ void drawHeader(const char *subtitle) {
     tft.fillScreen(bruceConfig.bgColor);
     tft.setTextSize(1);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+#if defined(FENRIR_EBYTE)
+    tft.drawString("FENRIR ANTENNA ID", 4, 3);
+#else
     tft.drawString("MAKO ANTENNA ID", 4, 3);
+#endif
     tft.setTextColor(TFT_WHITE, bruceConfig.bgColor);
     tft.drawString(subtitle, 4, 16);
 }
@@ -80,7 +98,11 @@ bool waitForSubGhzStart() {
     tft.setTextColor(TFT_LIGHTGREY, bruceConfig.bgColor);
     tft.drawString("Attach antenna to CC1101 SMA", 4, 34);
     tft.drawString("Keep unit still during scan", 4, 47);
+#if defined(FENRIR_EBYTE)
+    tft.drawString("E07 survey: 425-450.5 MHz only", 4, 60);
+#else
     tft.drawString("Known nearby source improves ID", 4, 60);
+#endif
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
     tft.drawString("Ambient result - not SWR/VSWR", 4, 78);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
@@ -166,6 +188,9 @@ BandResult analyseBand(
 }
 
 String likelyBandName(uint8_t bandIndex, float peakFrequency) {
+#if defined(FENRIR_EBYTE)
+    return "433 MHz";
+#else
     if (bandIndex == 0) {
         if (peakFrequency >= 307.0f && peakFrequency <= 323.0f) return "315 MHz";
         return "300-348 MHz";
@@ -177,6 +202,7 @@ String likelyBandName(uint8_t bandIndex, float peakFrequency) {
     if (peakFrequency >= 855.0f && peakFrequency < 890.0f) return "868 MHz";
     if (peakFrequency >= 890.0f) return "915 MHz";
     return "779-928 MHz";
+#endif
 }
 
 uint16_t scoreColor(const BandResult &result) {
@@ -187,7 +213,11 @@ uint16_t scoreColor(const BandResult &result) {
 }
 
 void drawBandRow(const BandDefinition &band, const BandResult &result, int y) {
+#if defined(FENRIR_EBYTE)
+    const int labelWidth = 68;
+#else
     const int labelWidth = 54;
+#endif
     const int rightWidth = 112;
     const int barX = labelWidth;
     int barWidth = tftWidth - labelWidth - rightWidth;
@@ -224,7 +254,11 @@ void drawResults(const BandResult results[BAND_COUNT]) {
     } else if (evidenceCount > 1) {
         classification = "POSSIBLE MULTI-BAND RESPONSE";
     } else {
+#if defined(FENRIR_EBYTE)
+        classification = "RF ACTIVITY IN E07 BAND";
+#else
         classification = "LIKELY " + likelyBandName(strongest, results[strongest].peakFrequency);
+#endif
     }
     tft.drawString(classification, 4, 31);
 
@@ -263,7 +297,7 @@ void printResults(const BandResult results[BAND_COUNT]) {
 }
 
 bool runSurvey(BandResult results[BAND_COUNT]) {
-    if (!initRfModule("rx", BAND_315[0])) {
+    if (!initRfModule("rx", BANDS[0].frequencies[0])) {
         displayError("Unable to start CC1101", true);
         return false;
     }

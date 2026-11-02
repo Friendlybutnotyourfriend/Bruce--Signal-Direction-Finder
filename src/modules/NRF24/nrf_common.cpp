@@ -1,4 +1,5 @@
 #include "nrf_common.h"
+#include "modules/radio_control/radio_control.h"
 #include "../../core/mykeyboard.h"
 
 RF24 NRFradio(bruceConfigPins.NRF24_bus.io0, bruceConfigPins.NRF24_bus.cs);
@@ -80,6 +81,7 @@ bool nrf_start(NRF24_MODE mode) {
             rf24_gpio_pin_t(bruceConfigPins.NRF24_bus.cs)
         )) {
         result = true;
+        RadioControl::applyNrfSettings(NRFradio);
     } else {
         return false;
     }
