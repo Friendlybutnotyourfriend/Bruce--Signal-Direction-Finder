@@ -897,10 +897,12 @@ void huntTarget(const BleObservation &t) {
 #ifdef ES8311_CODEC
             actions.emplace_back("Record 5s voice note", [&]() { action = 7; });
             actions.emplace_back("Speaker test chirp", [&]() { action = 9; });
+#ifdef ES3C28P
             actions.emplace_back(
                 screenOff ? "Backlight on" : "Backlight off (tap to wake)",
                 [&]() { action = 8; }
             );
+#endif
 #endif
             loopOptions(actions, MENU_TYPE_REGULAR, "Hunter actions", 0, false);
             hunterSnapshot(uiHunterSnap);
@@ -929,10 +931,13 @@ void huntTarget(const BleObservation &t) {
             }
 #ifdef ES8311_CODEC
             if (action == 7) recordReconVoiceNote();
+#ifdef ES3C28P
             if (action == 8) {
                 screenOff = !screenOff;
                 setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+                if (screenOff) check(AnyKeyPress); // Ignore menu's own touch event.
             }
+#endif
             if (action == 9) {
                 if (recon::audio::enable(true)) {
                     recon::audio::cue(recon::audio::Cue::Reacquired);
@@ -1602,10 +1607,12 @@ void sniffTarget(const BleObservation &t) {
             actions.emplace_back(snifferAudio ? "Audio alerts off" : "Audio alerts on", [&chosen]() { chosen = 8; });
 #ifdef ES8311_CODEC
             actions.emplace_back("Record 5s voice note", [&chosen]() { chosen = 9; });
+#ifdef ES3C28P
             actions.emplace_back(
                 screenOff ? "Backlight on" : "Backlight off (tap to wake)",
                 [&chosen]() { chosen = 10; }
             );
+#endif
 #endif
             loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
             if (chosen == 0) {
@@ -1654,10 +1661,13 @@ void sniffTarget(const BleObservation &t) {
             }
 #ifdef ES8311_CODEC
             if (chosen == 9) recordReconVoiceNote();
+#ifdef ES3C28P
             if (chosen == 10) {
                 screenOff = !screenOff;
                 setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+                if (screenOff) check(AnyKeyPress);
             }
+#endif
 #endif
             association.resume(millis());
             recon::capture.event("resume", "sniffer_menu");
