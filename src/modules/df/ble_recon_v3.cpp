@@ -1,6 +1,14 @@
 #include "ble_recon_v3.h"
 #include "recon_core.h"
 #include "recon_capture.h"
+#include "recon_audio.h"
+#ifdef ES3C28P
+#include "core/settings.h"
+#endif
+#ifdef ES8311_CODEC
+#include "modules/others/mic.h"
+#include "core/sd_functions.h"
+#endif
 #include "modules/others/audio.h"
 #include <esp_timer.h>
 
@@ -809,6 +817,33 @@ bool startPassiveHunter() {
     pBLEScan->setScanCallbacks(&hunterCallbacks, true);
     return pBLEScan->start(0, false, true);
 }
+#ifdef ES8311_CODEC
+// Recording is deliberate, local, and bounded. The BLE radio is paused by the caller.
+void recordReconVoiceNote() {
+    recon::audio::stop();
+    vTaskDelay(pdMS_TO_TICKS(220)); // Allow any short in-flight tone to release I2S.
+    if (!setupSdCard()) {
+        displayWarning("Voice note requires SD card", true);
+        return;
+    }
+    const String filename = "/BruceRecon/voice-" + String(millis()) + ".wav";
+    if (SD.exists(filename)) {
+        displayWarning("Voice note filename collision", true);
+        return;
+    }
+    displayTextLine("Recording voice note (5 seconds)...");
+    uint32_t bytes = 0;
+    const bool ok = mic_record_wav_to_path(&SD, filename, 5000, &bytes, 1.0f);
+    if (ok && bytes > 44) {
+        recon::capture.event("voice_note", filename.c_str());
+        displayTextLine("Voice note saved");
+    } else {
+        SD.remove(filename);
+        displayWarning("Voice recording failed", true);
+    }
+}
+#endif
+
 void huntTarget(const BleObservation &t) {
     ble_scan_setup();
     if (!pBLEScan) {
@@ -826,16 +861,29 @@ void huntTarget(const BleObservation &t) {
     }
     uint32_t draw = 0;
     uint32_t lastLog = millis();
-    uint32_t warmSince = 0, lastBeep = 0, lastSamples = 0;
-    bool audio = false, haveCheckpoint = false;
+    uint32_t lastSamples = 0, lastHandoffs = 0;
+    bool audio = false, haveCheckpoint = false, wasFresh = false, everFresh = false, wasAmbiguous = false;
+#ifdef ES3C28P
+    bool screenOff = false;
+#endif
     float checkpoint = 0;
     float trail[48]{};
     unsigned trailCount = 0;
     while (!check(EscPress)) {
         logReconMemory("HUNTER_UI", lastLog);
         recon::capture.drain();
+#ifdef ES3C28P
+        if (screenOff && check(AnyKeyPress)) {
+            screenOff = false;
+            setBrightness(bruceConfig.bright, false);
+            draw = 0;
+            delay(180);
+            continue;
+        }
+#endif
         if (check(LongPress) || check(SelPress)) {
             pBLEScan->stop();
+            recon::audio::stop();
             recon::capture.event("pause", "hunter_menu");
             std::vector<Option> actions;
             int action = -1;
@@ -846,6 +894,16 @@ void huntTarget(const BleObservation &t) {
             actions.emplace_back("Undo address change + lock", [&]() { action = 4; });
             actions.emplace_back("Toggle address lock", [&]() { action = 5; });
             actions.emplace_back(recon::capture.active() ? "Stop recording" : "Start recording", [&]() { action = 6; });
+#ifdef ES8311_CODEC
+            actions.emplace_back("Record 5s voice note", [&]() { action = 7; });
+            actions.emplace_back("Speaker test chirp", [&]() { action = 9; });
+#ifdef ES3C28P
+            actions.emplace_back(
+                screenOff ? "Backlight on" : "Backlight off (tap to wake)",
+                [&]() { action = 8; }
+            );
+#endif
+#endif
             loopOptions(actions, MENU_TYPE_REGULAR, "Hunter actions", 0, false);
             hunterSnapshot(uiHunterSnap);
             if (action == 0) drawHunterDetails(uiHunterSnap);
@@ -856,7 +914,14 @@ void huntTarget(const BleObservation &t) {
                     recon::capture.event("checkpoint", String(checkpoint, 1).c_str());
                 } else displayWarning("Need fresh target samples", true);
             }
-            if (action == 2) audio = !audio;
+            if (action == 2) {
+                audio = !audio;
+                if (audio && !recon::audio::enable(true)) {
+                    audio = false;
+                    displayWarning("Audio unavailable or muted in settings", true);
+                }
+                recon::audio::stop();
+            }
             if (action == 3) recon::capture.event("bookmark", "hunter");
             if (action == 4) { undoAssociation(true); haveCheckpoint = false; trailCount = 0; }
             if (action == 5) { association.lock(!associationStatus().locked); recon::capture.event("lock_toggle"); }
@@ -864,10 +929,29 @@ void huntTarget(const BleObservation &t) {
                 if (recon::capture.active()) recon::capture.end();
                 else recon::capture.begin("hunter", uiHunterSnap.target.address);
             }
+#ifdef ES8311_CODEC
+            if (action == 7) recordReconVoiceNote();
+#ifdef ES3C28P
+            if (action == 8) {
+                screenOff = !screenOff;
+                setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+                if (screenOff) check(AnyKeyPress); // Ignore menu's own touch event.
+            }
+#endif
+            if (action == 9) {
+                if (recon::audio::enable(true)) {
+                    recon::audio::cue(recon::audio::Cue::Reacquired);
+                    delay(400);
+                } else displayWarning("Enable sound in settings", true);
+                recon::audio::stop();
+            }
+#endif
             association.resume(millis());
             recon::capture.event("resume", "hunter_menu");
             if (!startPassiveHunter()) { displayError("Scan restart failed", true); break; }
-            draw = 0; warmSince = 0;
+            draw = 0; everFresh = wasFresh = wasAmbiguous = false;
+            lastHandoffs = associationStatus().handoffs;
+            if (audio) recon::audio::enable(true);
             delay(100);
         }
         if (millis() - draw >= 250) {
@@ -881,6 +965,18 @@ void huntTarget(const BleObservation &t) {
             const uint32_t now = millis(), age = now - a.lastSeen;
             const bool fresh = age <= a.timeout;
             const bool unstable = s.jitter > 4 || fabsf(s.trend) < s.jitter;
+            if (!fresh && wasFresh) recon::audio::cue(recon::audio::Cue::Lost);
+            if (fresh && everFresh && !wasFresh) recon::audio::cue(recon::audio::Cue::Reacquired);
+            if (a.handoffs != lastHandoffs) {
+                lastHandoffs = a.handoffs;
+                recon::audio::cue(recon::audio::Cue::Handoff);
+            }
+            const bool ambiguous = a.ambiguous || a.tentative;
+            if (ambiguous && !wasAmbiguous) recon::audio::cue(recon::audio::Cue::Ambiguous);
+            wasAmbiguous = ambiguous;
+            if (fresh) everFresh = true;
+            wasFresh = fresh;
+            if (s.samples >= 3 && !ambiguous) recon::audio::proximity(s.stableRssi, s.jitter, fresh, now);
             String direction = !fresh ? "TARGET LOST" : unstable ? "UNSTABLE" : s.trend > 2 ? "WARMER" : s.trend < -2 ? "COLDER" : "STEADY";
             tft.drawCentreString("BLE HUNTER / FIELD", tftWidth / 2, 26, 1);
             tft.drawCentreString(s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 38, 1);
@@ -900,18 +996,16 @@ void huntTarget(const BleObservation &t) {
                 const auto y = [](float v) { return 145 - static_cast<int>((std::max(-100.f, std::min(-30.f, v)) + 100) * 20 / 70); };
                 tft.drawLine(10 + (i-1) * (tftWidth-20) / 47, y(trail[i-1]), 10 + i * (tftWidth-20) / 47, y(trail[i]), fresh ? bruceConfig.priColor : TFT_DARKGREY);
             }
-            if (fresh && !unstable && s.trend > 2 && s.samples >= 7) {
-                if (!warmSince) warmSince = now;
-                if (audio && now - warmSince >= 4000 && now - lastBeep >= 3000) {
-                    recon::capture.drain(32); _tone(1200, 500); lastBeep = now;
-                }
-            } else warmSince = 0;
             tft.drawCentreString("Select actions  Esc back", tftWidth / 2, tftHeight - 14, 1);
             drawStatusBar();
             draw = millis();
         }
         delay(10);
     }
+    recon::audio::stop();
+#ifdef ES3C28P
+    if (screenOff) setBrightness(bruceConfig.bright, false);
+#endif
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
     recon::capture.end();
@@ -1470,7 +1564,11 @@ void sniffTarget(const BleObservation &t) {
     }
     uint8_t view = 0;
     size_t scroll = 0;
-    bool frozen = false;
+    bool frozen = false, snifferAudio = false, hadTarget = false, wasFreshSniffer = false;
+#ifdef ES3C28P
+    bool screenOff = false;
+#endif
+    uint32_t lastMutationAudio = 0, lastAudioPacket = 0, lastSnifferHandoffs = 0;
     SnifferState &frozenState = uiFrozenSnap;
     reinit(frozenState);
     uint32_t draw = 0;
@@ -1478,6 +1576,15 @@ void sniffTarget(const BleObservation &t) {
     while (!check(EscPress)) {
         logReconMemory("SNIFFER_UI", lastLog);
         recon::capture.drain();
+#ifdef ES3C28P
+        if (screenOff && check(AnyKeyPress)) {
+            screenOff = false;
+            setBrightness(bruceConfig.bright, false);
+            draw = 0;
+            delay(180);
+            continue;
+        }
+#endif
         if (check(PrevPress)) {
             if (scroll) scroll--;
             else view = (view + 4) % 5;
@@ -1485,6 +1592,7 @@ void sniffTarget(const BleObservation &t) {
         if (check(NextPress)) scroll++;
         if (check(LongPress) || check(SelPress)) {
             pBLEScan->stop();
+            recon::audio::stop();
             recon::capture.event("pause", "sniffer_menu");
             std::vector<Option> actions;
             int chosen = -1;
@@ -1496,6 +1604,16 @@ void sniffTarget(const BleObservation &t) {
             actions.emplace_back("Undo address change + lock", [&chosen]() { chosen = 5; });
             actions.emplace_back("Toggle address lock", [&chosen]() { chosen = 6; });
             actions.emplace_back(recon::capture.active() ? "Stop recording" : "Start recording", [&chosen]() { chosen = 7; });
+            actions.emplace_back(snifferAudio ? "Audio alerts off" : "Audio alerts on", [&chosen]() { chosen = 8; });
+#ifdef ES8311_CODEC
+            actions.emplace_back("Record 5s voice note", [&chosen]() { chosen = 9; });
+#ifdef ES3C28P
+            actions.emplace_back(
+                screenOff ? "Backlight on" : "Backlight off (tap to wake)",
+                [&chosen]() { chosen = 10; }
+            );
+#endif
+#endif
             loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
             if (chosen == 0) {
                 frozen = false;
@@ -1533,18 +1651,61 @@ void sniffTarget(const BleObservation &t) {
                 if (recon::capture.active()) recon::capture.end();
                 else recon::capture.begin("sniffer", snifferState.target.address);
             }
+            if (chosen == 8) {
+                snifferAudio = !snifferAudio;
+                if (snifferAudio && !recon::audio::enable(true)) {
+                    snifferAudio = false;
+                    displayWarning("Audio unavailable or muted in settings", true);
+                }
+                recon::audio::stop();
+            }
+#ifdef ES8311_CODEC
+            if (chosen == 9) recordReconVoiceNote();
+#ifdef ES3C28P
+            if (chosen == 10) {
+                screenOff = !screenOff;
+                setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+                if (screenOff) check(AnyKeyPress);
+            }
+#endif
+#endif
             association.resume(millis());
             recon::capture.event("resume", "sniffer_menu");
             if (!startPassiveSniffer()) { displayError("Scan restart failed", true); break; }
+            hadTarget = wasFreshSniffer = false;
+            lastSnifferHandoffs = associationStatus().handoffs;
+            if (snifferAudio) recon::audio::enable(true);
             delay(100);
         }
         if (millis() - draw >= (frozen ? 1000 : 300)) {
             if (!frozen) snifferSnapshot(uiSnifferSnap);
+            if (!frozen && snifferAudio) {
+                const auto a = associationStatus();
+                const uint32_t now = millis();
+                const bool fresh = (now - a.lastSeen) <= a.timeout;
+                if (!fresh && wasFreshSniffer) recon::audio::cue(recon::audio::Cue::Lost);
+                if (fresh && hadTarget && !wasFreshSniffer) recon::audio::cue(recon::audio::Cue::Reacquired);
+                if (a.handoffs != lastSnifferHandoffs) {
+                    recon::audio::cue(recon::audio::Cue::Handoff);
+                    lastSnifferHandoffs = a.handoffs;
+                } else if (fresh && uiSnifferSnap.packets != lastAudioPacket &&
+                           uiSnifferSnap.fieldChanges && now - lastMutationAudio > 1500) {
+                    recon::audio::cue(recon::audio::Cue::Mutation);
+                    lastMutationAudio = now;
+                }
+                lastAudioPacket = uiSnifferSnap.packets;
+                if (fresh) hadTarget = true;
+                wasFreshSniffer = fresh;
+            }
             drawSniffer(frozen ? frozenState : uiSnifferSnap, view, scroll, frozen);
             draw = millis();
         }
         delay(10);
     }
+    recon::audio::stop();
+#ifdef ES3C28P
+    if (screenOff) setBrightness(bruceConfig.bright, false);
+#endif
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
     recon::capture.end();
