@@ -2,6 +2,9 @@
 #include "recon_core.h"
 #include "recon_capture.h"
 #include "recon_audio.h"
+#ifdef ES3C28P
+#include "core/settings.h"
+#endif
 #ifdef ES8311_CODEC
 #include "modules/others/mic.h"
 #include "core/sd_functions.h"
@@ -860,12 +863,24 @@ void huntTarget(const BleObservation &t) {
     uint32_t lastLog = millis();
     uint32_t lastSamples = 0, lastHandoffs = 0;
     bool audio = false, haveCheckpoint = false, wasFresh = false, everFresh = false, wasAmbiguous = false;
+#ifdef ES3C28P
+    bool screenOff = false;
+#endif
     float checkpoint = 0;
     float trail[48]{};
     unsigned trailCount = 0;
     while (!check(EscPress)) {
         logReconMemory("HUNTER_UI", lastLog);
         recon::capture.drain();
+#ifdef ES3C28P
+        if (screenOff && check(AnyKeyPress)) {
+            screenOff = false;
+            setBrightness(bruceConfig.bright, false);
+            draw = 0;
+            delay(180);
+            continue;
+        }
+#endif
         if (check(LongPress) || check(SelPress)) {
             pBLEScan->stop();
             recon::audio::stop();
@@ -881,6 +896,11 @@ void huntTarget(const BleObservation &t) {
             actions.emplace_back(recon::capture.active() ? "Stop recording" : "Start recording", [&]() { action = 6; });
 #ifdef ES8311_CODEC
             actions.emplace_back("Record 5s voice note", [&]() { action = 7; });
+            actions.emplace_back("Speaker test chirp", [&]() { action = 9; });
+            actions.emplace_back(
+                screenOff ? "Backlight on" : "Backlight off (tap to wake)",
+                [&]() { action = 8; }
+            );
 #endif
             loopOptions(actions, MENU_TYPE_REGULAR, "Hunter actions", 0, false);
             hunterSnapshot(uiHunterSnap);
@@ -909,6 +929,17 @@ void huntTarget(const BleObservation &t) {
             }
 #ifdef ES8311_CODEC
             if (action == 7) recordReconVoiceNote();
+            if (action == 8) {
+                screenOff = !screenOff;
+                setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+            }
+            if (action == 9) {
+                if (recon::audio::enable(true)) {
+                    recon::audio::cue(recon::audio::Cue::Reacquired);
+                    delay(400);
+                } else displayWarning("Enable sound in settings", true);
+                recon::audio::stop();
+            }
 #endif
             association.resume(millis());
             recon::capture.event("resume", "hunter_menu");
@@ -967,6 +998,9 @@ void huntTarget(const BleObservation &t) {
         delay(10);
     }
     recon::audio::stop();
+#ifdef ES3C28P
+    if (screenOff) setBrightness(bruceConfig.bright, false);
+#endif
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
     recon::capture.end();
@@ -1526,6 +1560,9 @@ void sniffTarget(const BleObservation &t) {
     uint8_t view = 0;
     size_t scroll = 0;
     bool frozen = false, snifferAudio = false, hadTarget = false, wasFreshSniffer = false;
+#ifdef ES3C28P
+    bool screenOff = false;
+#endif
     uint32_t lastMutationAudio = 0, lastAudioPacket = 0, lastSnifferHandoffs = 0;
     SnifferState &frozenState = uiFrozenSnap;
     reinit(frozenState);
@@ -1534,6 +1571,15 @@ void sniffTarget(const BleObservation &t) {
     while (!check(EscPress)) {
         logReconMemory("SNIFFER_UI", lastLog);
         recon::capture.drain();
+#ifdef ES3C28P
+        if (screenOff && check(AnyKeyPress)) {
+            screenOff = false;
+            setBrightness(bruceConfig.bright, false);
+            draw = 0;
+            delay(180);
+            continue;
+        }
+#endif
         if (check(PrevPress)) {
             if (scroll) scroll--;
             else view = (view + 4) % 5;
@@ -1556,6 +1602,10 @@ void sniffTarget(const BleObservation &t) {
             actions.emplace_back(snifferAudio ? "Audio alerts off" : "Audio alerts on", [&chosen]() { chosen = 8; });
 #ifdef ES8311_CODEC
             actions.emplace_back("Record 5s voice note", [&chosen]() { chosen = 9; });
+            actions.emplace_back(
+                screenOff ? "Backlight on" : "Backlight off (tap to wake)",
+                [&chosen]() { chosen = 10; }
+            );
 #endif
             loopOptions(actions, MENU_TYPE_REGULAR, "BLE Sniffer", 0, false);
             if (chosen == 0) {
@@ -1604,6 +1654,10 @@ void sniffTarget(const BleObservation &t) {
             }
 #ifdef ES8311_CODEC
             if (chosen == 9) recordReconVoiceNote();
+            if (chosen == 10) {
+                screenOff = !screenOff;
+                setBrightness(screenOff ? 0 : bruceConfig.bright, false);
+            }
 #endif
             association.resume(millis());
             recon::capture.event("resume", "sniffer_menu");
@@ -1638,6 +1692,10 @@ void sniffTarget(const BleObservation &t) {
         }
         delay(10);
     }
+    recon::audio::stop();
+#ifdef ES3C28P
+    if (screenOff) setBrightness(bruceConfig.bright, false);
+#endif
     pBLEScan->stop();
     pBLEScan->setScanCallbacks(nullptr, false);
     recon::capture.end();
