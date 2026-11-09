@@ -49,6 +49,12 @@ FM8002E amplifier and compatible passive two-wire speaker.
 
 ## Hardware acceptance sequence
 
+Audio troubleshooting revision: background cues use a 5 ms attack/release
+instead of the legacy one-second fade, apply user volume once, and do not
+consume UI key/touch events. Failed ES8311 I2C writes now appear in the
+serial log. These changes address source-level faults; silent-speaker
+hardware acceptance remains pending.
+
 1. Power down CBD; connect the included passive speaker to its own
    marked 2-pin speaker connector, **not directly to an ESP32 GPIO**.
 2. Boot the build through Launcher; enable sound and a low volume in

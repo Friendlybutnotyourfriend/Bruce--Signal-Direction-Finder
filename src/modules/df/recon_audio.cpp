@@ -31,7 +31,8 @@ void playback(void *) {
 #ifdef ES8311_CODEC
         // The ES8311 has no buzzer pin: playTone drives its codec over I2S.
         // Keep the blocking codec player off the BLE/UI thread.
-        playTone(tone.hz, tone.durationMs, 1);
+        // UI input belongs to the scan task, not this background audio worker.
+        playTone(tone.hz, tone.durationMs, 2, false);
 #else
         _tone(tone.hz, tone.durationMs);
 #endif
