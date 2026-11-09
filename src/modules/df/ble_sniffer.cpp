@@ -696,7 +696,6 @@ void drawSniffer(const SnifferState &state, uint8_t view, size_t &scroll, bool f
 
 bool confirmRadioAction(const String &title, const std::vector<String> &messages) {
     const uint32_t openedAt = millis();
-    while (true) {
         tft.fillScreen(bruceConfig.bgColor);
         drawMainBorder(false);
         tft.setTextSize(FP);
@@ -713,6 +712,7 @@ bool confirmRadioAction(const String &title, const std::vector<String> &messages
         tft.drawCentreString("Select: continue   Esc: cancel", tftWidth / 2, tftHeight - 21, 1);
         drawStatusBar();
 
+    while (true) {
         if (check(EscPress)) return false;
         if (millis() - openedAt > 650 && check(SelPress)) return true;
         delay(25);

@@ -1,3 +1,4 @@
+#include "recon_display.h"
 #include "ble_recon_v3.h"
 #include "recon_core.h"
 #include "recon_capture.h"
@@ -787,19 +788,22 @@ void drawHunterDetails(const HunterState &s) {
     appendWrapped(l, "FIELD ASSOCIATION / automatic changes reversible");
     appendWrapped(l, recon::capture.status());
     size_t scroll = 0;
+    bool redraw = true;
     while (!check(EscPress)) {
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString("BLE HUNTER DETAILS", tftWidth / 2, 29, 1);
-        const int first = 50, footer = tftHeight - 18, visible = (footer - first) / 12;
-        if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
-        for (int r = 0; r < visible && scroll + r < l.size(); r++)
-            tft.drawString(l[scroll + r], 8, first + r * 12, 1);
-        if (check(PrevPress) && scroll) scroll--;
-        if (check(NextPress)) scroll++;
-        tft.drawCentreString("Turn scroll  Esc", tftWidth / 2, footer, 1);
-        drawStatusBar();
+        if (redraw) {
+            recon::ui::renderFrame([&](auto &canvas) {
+                canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+                canvas.drawCentreString("BLE HUNTER DETAILS", tftWidth / 2, 29, 1);
+                const int first = 50, footer = tftHeight - 18, visible = (footer - first) / 12;
+                if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
+                for (int r = 0; r < visible && scroll + r < l.size(); r++)
+                    canvas.drawString(l[scroll + r], 8, first + r * 12, 1);
+                canvas.drawCentreString("Turn scroll  Esc", tftWidth / 2, footer, 1);
+            });
+            redraw = false;
+        }
+        if (check(PrevPress) && scroll) { --scroll; redraw = true; }
+        if (check(NextPress) && scroll + 1 < l.size()) { ++scroll; redraw = true; }
         delay(20);
     }
 }
@@ -957,47 +961,46 @@ void huntTarget(const BleObservation &t) {
         if (millis() - draw >= 250) {
             hunterSnapshot(uiHunterSnap);
             const HunterState &s = uiHunterSnap;
-            tft.fillScreen(bruceConfig.bgColor);
-            drawMainBorder(false);
-            tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-            tft.setTextSize(FP);
-            const auto a = associationStatus();
-            const uint32_t now = millis(), age = now - a.lastSeen;
-            const bool fresh = age <= a.timeout;
-            const bool unstable = s.jitter > 4 || fabsf(s.trend) < s.jitter;
-            if (!fresh && wasFresh) recon::audio::cue(recon::audio::Cue::Lost);
-            if (fresh && everFresh && !wasFresh) recon::audio::cue(recon::audio::Cue::Reacquired);
-            if (a.handoffs != lastHandoffs) {
-                lastHandoffs = a.handoffs;
-                recon::audio::cue(recon::audio::Cue::Handoff);
-            }
-            const bool ambiguous = a.ambiguous || a.tentative;
-            if (ambiguous && !wasAmbiguous) recon::audio::cue(recon::audio::Cue::Ambiguous);
-            wasAmbiguous = ambiguous;
-            if (fresh) everFresh = true;
-            wasFresh = fresh;
-            if (s.samples >= 3 && !ambiguous) recon::audio::proximity(s.stableRssi, s.jitter, fresh, now);
-            String direction = !fresh ? "TARGET LOST" : unstable ? "UNSTABLE" : s.trend > 2 ? "WARMER" : s.trend < -2 ? "COLDER" : "STEADY";
-            tft.drawCentreString("BLE HUNTER / FIELD", tftWidth / 2, 26, 1);
-            tft.drawCentreString(s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 38, 1);
-            tft.drawCentreString(matchStatus(), tftWidth / 2, 50, 1);
-            tft.setTextColor(!fresh ? TFT_RED : unstable ? TFT_YELLOW : bruceConfig.priColor, bruceConfig.bgColor);
-            tft.drawCentreString(direction, tftWidth / 2, 64, 2);
-            tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-            tft.drawString(String(s.stableRssi, 1) + " dBm  age " + String(age) + " ms", 10, 88, 1);
-            tft.drawString(haveCheckpoint ? "Checkpoint " + String(s.stableRssi - checkpoint, 1) + " dB  jitter " + String(s.jitter, 1) : "Trend " + String(s.trend, 1) + " dB  jitter " + String(s.jitter, 1), 10, 100, 1);
-            tft.drawString(recon::capture.status(), 10, 112, 1);
-            if (s.samples != lastSamples && fresh) {
-                lastSamples = s.samples;
-                if (trailCount == 48) { for (unsigned i = 1; i < 48; ++i) trail[i-1] = trail[i]; --trailCount; }
-                trail[trailCount++] = s.stableRssi;
-            }
-            for (unsigned i = 1; i < trailCount; ++i) {
-                const auto y = [](float v) { return 145 - static_cast<int>((std::max(-100.f, std::min(-30.f, v)) + 100) * 20 / 70); };
-                tft.drawLine(10 + (i-1) * (tftWidth-20) / 47, y(trail[i-1]), 10 + i * (tftWidth-20) / 47, y(trail[i]), fresh ? bruceConfig.priColor : TFT_DARKGREY);
-            }
-            tft.drawCentreString("Select actions  Esc back", tftWidth / 2, tftHeight - 14, 1);
-            drawStatusBar();
+            recon::ui::renderFrame([&](auto &canvas) {
+                    canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+                canvas.setTextSize(FP);
+                const auto a = associationStatus();
+                const uint32_t now = millis(), age = now - a.lastSeen;
+                const bool fresh = age <= a.timeout;
+                const bool unstable = s.jitter > 4 || fabsf(s.trend) < s.jitter;
+                if (!fresh && wasFresh) recon::audio::cue(recon::audio::Cue::Lost);
+                if (fresh && everFresh && !wasFresh) recon::audio::cue(recon::audio::Cue::Reacquired);
+                if (a.handoffs != lastHandoffs) {
+                    lastHandoffs = a.handoffs;
+                    recon::audio::cue(recon::audio::Cue::Handoff);
+                }
+                const bool ambiguous = a.ambiguous || a.tentative;
+                if (ambiguous && !wasAmbiguous) recon::audio::cue(recon::audio::Cue::Ambiguous);
+                wasAmbiguous = ambiguous;
+                if (fresh) everFresh = true;
+                wasFresh = fresh;
+                if (s.samples >= 3 && !ambiguous) recon::audio::proximity(s.stableRssi, s.jitter, fresh, now);
+                String direction = !fresh ? "TARGET LOST" : unstable ? "UNSTABLE" : s.trend > 2 ? "WARMER" : s.trend < -2 ? "COLDER" : "STEADY";
+                canvas.drawCentreString("BLE HUNTER / FIELD", tftWidth / 2, 26, 1);
+                canvas.drawCentreString(s.currentName[0] ? String(s.currentName) : String(s.target.address), tftWidth / 2, 38, 1);
+                canvas.drawCentreString(matchStatus(), tftWidth / 2, 50, 1);
+                canvas.setTextColor(!fresh ? TFT_RED : unstable ? TFT_YELLOW : bruceConfig.priColor, bruceConfig.bgColor);
+                canvas.drawCentreString(direction, tftWidth / 2, 64, 2);
+                canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+                canvas.drawString(String(s.stableRssi, 1) + " dBm  age " + String(age) + " ms", 10, 88, 1);
+                canvas.drawString(haveCheckpoint ? "Checkpoint " + String(s.stableRssi - checkpoint, 1) + " dB  jitter " + String(s.jitter, 1) : "Trend " + String(s.trend, 1) + " dB  jitter " + String(s.jitter, 1), 10, 100, 1);
+                canvas.drawString(recon::capture.status(), 10, 112, 1);
+                if (s.samples != lastSamples && fresh) {
+                    lastSamples = s.samples;
+                    if (trailCount == 48) { for (unsigned i = 1; i < 48; ++i) trail[i-1] = trail[i]; --trailCount; }
+                    trail[trailCount++] = s.stableRssi;
+                }
+                for (unsigned i = 1; i < trailCount; ++i) {
+                    const auto y = [](float v) { return 145 - static_cast<int>((std::max(-100.f, std::min(-30.f, v)) + 100) * 20 / 70); };
+                    canvas.drawLine(10 + (i-1) * (tftWidth-20) / 47, y(trail[i-1]), 10 + i * (tftWidth-20) / 47, y(trail[i]), fresh ? bruceConfig.priColor : TFT_DARKGREY);
+                }
+                canvas.drawCentreString("Select actions  Esc back", tftWidth / 2, tftHeight - 14, 1);
+            });
             draw = millis();
         }
         delay(10);
@@ -1206,163 +1209,161 @@ String mutationClass(const MutationModel &m) {
                                    : "PARTIAL VOLATILITY / LIVE DATA";
 }
 void drawSniffer(const SnifferState &s, uint8_t view, size_t &scroll, bool frozen) {
-    tft.fillScreen(bruceConfig.bgColor);
-    drawMainBorder(false);
-    tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-    tft.setTextSize(FP);
-    const char *vn = view == 0   ? "PLAIN"
-                     : view == 1 ? "AD FIELDS"
-                     : view == 2 ? "RAW"
-                     : view == 3 ? "MUTATION"
-                                 : "ACTIVE";
-    tft.drawCentreString(String("BLE SNIFFER - ") + vn, tftWidth / 2, 29, 1);
-    tft.drawCentreString(
-        s.target.name[0] ? String(s.target.name) : String(s.target.address), tftWidth / 2, 42, 1
-    );
-    const bool lost = s.initialized && millis() - s.lastSeen > associationStatus().timeout;
-    tft.setTextColor(lost ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor);
-    tft.drawCentreString(
-        lost ? String("TARGET QUIET") : String(s.target.rssi) + " dBm  " + String(s.packets) + " pkt",
-        tftWidth / 2,
-        54,
-        1
-    );
-    std::vector<String> l;
-    appendWrapped(l, matchStatus());
-    appendWrapped(l, recon::capture.status());
-    appendWrapped(l, "Decoded field changes: " + String(s.fieldChanges));
-    appendWrapped(l, "Signature preview: first 24 bytes/field");
-
-    if (view == 0) {
-        appendWrapped(l, "Address: " + String(s.target.address));
-        appendWrapped(l, "Type: " + addressTypeName(s.target));
-        appendWrapped(l, s.target.connectable ? "Connectable" : "Not connectable");
-        appendWrapped(l, s.target.scannable ? "Scannable" : "Non-scannable");
-        appendWrapped(
-            l,
-            "Company: " +
-                String(companyName(s.target.companyId) ? companyName(s.target.companyId) : "Unlisted") +
-                " 0x" + String(s.target.companyId, HEX)
+    recon::ui::renderFrame([&](auto &canvas) {
+        canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+        canvas.setTextSize(FP);
+        const char *vn = view == 0   ? "PLAIN"
+                         : view == 1 ? "AD FIELDS"
+                         : view == 2 ? "RAW"
+                         : view == 3 ? "MUTATION"
+                                     : "ACTIVE";
+        canvas.drawCentreString(String("BLE SNIFFER - ") + vn, tftWidth / 2, 29, 1);
+        canvas.drawCentreString(
+            s.target.name[0] ? String(s.target.name) : String(s.target.address), tftWidth / 2, 42, 1
         );
-        appendWrapped(l, "Payload: " + String(s.target.payloadLen) + " bytes");
-        appendWrapped(l, "Rate: " + String(s.pps, 1) + "/s  gap " + String(s.gapEma, 0) + "ms");
-        if (s.target.hasAppearance) appendWrapped(l, "Appearance: " + appearanceName(s.target.appearance));
-        if (s.fcf1.seen) appendWrapped(l, "Google Service (FCF1) DETECTED");
-#ifdef BLE_RECON_EXT_ADV
-        appendWrapped(l, s.target.legacy ? "Legacy advertising" : "Extended advertising");
-        if (!s.target.legacy) {
+        const bool lost = s.initialized && millis() - s.lastSeen > associationStatus().timeout;
+        canvas.setTextColor(lost ? TFT_RED : bruceConfig.priColor, bruceConfig.bgColor);
+        canvas.drawCentreString(
+            lost ? String("TARGET QUIET") : String(s.target.rssi) + " dBm  " + String(s.packets) + " pkt",
+            tftWidth / 2,
+            54,
+            1
+        );
+        std::vector<String> l;
+        appendWrapped(l, matchStatus());
+        appendWrapped(l, recon::capture.status());
+        appendWrapped(l, "Decoded field changes: " + String(s.fieldChanges));
+        appendWrapped(l, "Signature preview: first 24 bytes/field");
+
+        if (view == 0) {
+            appendWrapped(l, "Address: " + String(s.target.address));
+            appendWrapped(l, "Type: " + addressTypeName(s.target));
+            appendWrapped(l, s.target.connectable ? "Connectable" : "Not connectable");
+            appendWrapped(l, s.target.scannable ? "Scannable" : "Non-scannable");
             appendWrapped(
                 l,
-                "SID " + String(s.target.sid) + " PHY " + String(s.target.primaryPhy) + "/" +
-                    String(s.target.secondaryPhy)
+                "Company: " +
+                    String(companyName(s.target.companyId) ? companyName(s.target.companyId) : "Unlisted") +
+                    " 0x" + String(s.target.companyId, HEX)
             );
-            appendWrapped(l, "Data status " + String(s.target.dataStatus));
-            appendWrapped(
-                l,
-                s.target.periodicInterval
-                    ? "Periodic interval: " + String(s.target.periodicInterval) + " units"
-                    : "No periodic interval advertised"
-            );
-        }
-#endif
-    } else if (view == 1) {
-        parseAdFields(s.target.payload, s.target.payloadLen, &l, nullptr);
-        if (s.responseLen) {
-            appendWrapped(l, "SCAN RESPONSE");
-            parseAdFields(s.response, s.responseLen, &l, nullptr);
-        }
-    } else if (view == 2) {
-        appendWrapped(l, "ADV PAYLOAD");
-        for (size_t i = 0; i < s.target.payloadLen; i += 8)
-            l.push_back(
-                String(i, HEX) + ": " +
-                hexBytes(s.target.payload + i, std::min<size_t>(8, s.target.payloadLen - i), 8, true)
-            );
-        if (s.responseLen) {
-            appendWrapped(l, "SCAN RESPONSE");
-            for (size_t i = 0; i < s.responseLen; i += 8)
+            appendWrapped(l, "Payload: " + String(s.target.payloadLen) + " bytes");
+            appendWrapped(l, "Rate: " + String(s.pps, 1) + "/s  gap " + String(s.gapEma, 0) + "ms");
+            if (s.target.hasAppearance) appendWrapped(l, "Appearance: " + appearanceName(s.target.appearance));
+            if (s.fcf1.seen) appendWrapped(l, "Google Service (FCF1) DETECTED");
+    #ifdef BLE_RECON_EXT_ADV
+            appendWrapped(l, s.target.legacy ? "Legacy advertising" : "Extended advertising");
+            if (!s.target.legacy) {
+                appendWrapped(
+                    l,
+                    "SID " + String(s.target.sid) + " PHY " + String(s.target.primaryPhy) + "/" +
+                        String(s.target.secondaryPhy)
+                );
+                appendWrapped(l, "Data status " + String(s.target.dataStatus));
+                appendWrapped(
+                    l,
+                    s.target.periodicInterval
+                        ? "Periodic interval: " + String(s.target.periodicInterval) + " units"
+                        : "No periodic interval advertised"
+                );
+            }
+    #endif
+        } else if (view == 1) {
+            parseAdFields(s.target.payload, s.target.payloadLen, &l, nullptr);
+            if (s.responseLen) {
+                appendWrapped(l, "SCAN RESPONSE");
+                parseAdFields(s.response, s.responseLen, &l, nullptr);
+            }
+        } else if (view == 2) {
+            appendWrapped(l, "ADV PAYLOAD");
+            for (size_t i = 0; i < s.target.payloadLen; i += 8)
                 l.push_back(
                     String(i, HEX) + ": " +
-                    hexBytes(s.response + i, std::min<size_t>(8, s.responseLen - i), 8, true)
+                    hexBytes(s.target.payload + i, std::min<size_t>(8, s.target.payloadLen - i), 8, true)
                 );
+            if (s.responseLen) {
+                appendWrapped(l, "SCAN RESPONSE");
+                for (size_t i = 0; i < s.responseLen; i += 8)
+                    l.push_back(
+                        String(i, HEX) + ": " +
+                        hexBytes(s.response + i, std::min<size_t>(8, s.responseLen - i), 8, true)
+                    );
+            }
+        } else if (view == 3) {
+            appendWrapped(l, mutationClass(s.mutation));
+            appendWrapped(l, "Observations: " + String(s.mutation.observations));
+            appendWrapped(l, "Payload changes: " + String(s.mutation.changes));
+            appendWrapped(l, "Last changed bytes: " + String(s.mutation.lastChanged));
+            appendWrapped(
+                l, "Last diff offsets: " + hexBytes(s.mutation.lastDiff, s.mutation.lastDiffLen, 48, true)
+            );
+            size_t stable = 0, vol = 0, ctr = 0;
+            for (size_t i = 0; i < s.mutation.len; i++) {
+                if (s.mutation.volatileMask[i]) vol++;
+                else stable++;
+                if (s.mutation.counterHits[i] >= 2) ctr++;
+            }
+            appendWrapped(
+                l, "Stable " + String(stable) + "  Volatile " + String(vol) + "  Counter-like " + String(ctr)
+            );
+            if (s.fcf1.seen) {
+                appendWrapped(l, "--- GOOGLE SERVICE (FCF1) ---");
+                appendWrapped(
+                    l,
+                    "Payload " + String(s.fcf1.len) + " bytes: " + hexBytes(s.fcf1.payload, s.fcf1.len, 32, true)
+                );
+                appendWrapped(
+                    l,
+                    "First " + String(s.fcf1.firstSeen / 1000) + "s  Last " + String(s.fcf1.lastSeen / 1000) +
+                        "s  Count " + String(s.fcf1.count)
+                );
+                appendWrapped(
+                    l,
+                    "MAC changes " + String(s.fcf1.macChanges) + "  Payload changes " +
+                        String(s.fcf1.payloadChanges)
+                );
+                appendWrapped(l, "Correlated MAC+payload " + String(s.fcf1.correlated));
+                appendWrapped(
+                    l, "MAC-only " + String(s.fcf1.macOnly) + "  Payload-only " + String(s.fcf1.payloadOnly)
+                );
+                appendWrapped(
+                    l,
+                    "Current " + String(s.fcf1.currentAddress) + " " +
+                        addressTypeName(s.fcf1.addressType, s.fcf1.currentAddress)
+                );
+                if (s.fcf1.previousAddress[0]) appendWrapped(l, "Previous " + String(s.fcf1.previousAddress));
+            }
+        } else {
+            appendWrapped(l, s.activeComplete ? "Active scan complete" : "No active scan performed");
+            appendWrapped(
+                l, "Bursts " + String(s.activeBursts) + "  Scannable reports " + String(s.activeReports)
+            );
+            appendWrapped(l, "Scan responses " + String(s.activeResponses));
+            if (s.responseLen) parseAdFields(s.response, s.responseLen, &l, nullptr);
         }
-    } else if (view == 3) {
-        appendWrapped(l, mutationClass(s.mutation));
-        appendWrapped(l, "Observations: " + String(s.mutation.observations));
-        appendWrapped(l, "Payload changes: " + String(s.mutation.changes));
-        appendWrapped(l, "Last changed bytes: " + String(s.mutation.lastChanged));
-        appendWrapped(
-            l, "Last diff offsets: " + hexBytes(s.mutation.lastDiff, s.mutation.lastDiffLen, 48, true)
-        );
-        size_t stable = 0, vol = 0, ctr = 0;
-        for (size_t i = 0; i < s.mutation.len; i++) {
-            if (s.mutation.volatileMask[i]) vol++;
-            else stable++;
-            if (s.mutation.counterHits[i] >= 2) ctr++;
-        }
-        appendWrapped(
-            l, "Stable " + String(stable) + "  Volatile " + String(vol) + "  Counter-like " + String(ctr)
-        );
-        if (s.fcf1.seen) {
-            appendWrapped(l, "--- GOOGLE SERVICE (FCF1) ---");
-            appendWrapped(
-                l,
-                "Payload " + String(s.fcf1.len) + " bytes: " + hexBytes(s.fcf1.payload, s.fcf1.len, 32, true)
-            );
-            appendWrapped(
-                l,
-                "First " + String(s.fcf1.firstSeen / 1000) + "s  Last " + String(s.fcf1.lastSeen / 1000) +
-                    "s  Count " + String(s.fcf1.count)
-            );
-            appendWrapped(
-                l,
-                "MAC changes " + String(s.fcf1.macChanges) + "  Payload changes " +
-                    String(s.fcf1.payloadChanges)
-            );
-            appendWrapped(l, "Correlated MAC+payload " + String(s.fcf1.correlated));
-            appendWrapped(
-                l, "MAC-only " + String(s.fcf1.macOnly) + "  Payload-only " + String(s.fcf1.payloadOnly)
-            );
-            appendWrapped(
-                l,
-                "Current " + String(s.fcf1.currentAddress) + " " +
-                    addressTypeName(s.fcf1.addressType, s.fcf1.currentAddress)
-            );
-            if (s.fcf1.previousAddress[0]) appendWrapped(l, "Previous " + String(s.fcf1.previousAddress));
-        }
-    } else {
-        appendWrapped(l, s.activeComplete ? "Active scan complete" : "No active scan performed");
-        appendWrapped(
-            l, "Bursts " + String(s.activeBursts) + "  Scannable reports " + String(s.activeReports)
-        );
-        appendWrapped(l, "Scan responses " + String(s.activeResponses));
-        if (s.responseLen) parseAdFields(s.response, s.responseLen, &l, nullptr);
-    }
-    const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12;
-    if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
-    for (int r = 0; r < visible && scroll + r < l.size(); r++)
-        tft.drawString(l[scroll + r], 8, first + r * 12, 1);
-    if (scroll) tft.drawRightString("^", tftWidth - 7, first, 1);
-    if (scroll + visible < l.size()) tft.drawRightString("v", tftWidth - 7, footer - 12, 1);
-    tft.drawCentreString("Turn scroll  Hold actions", tftWidth / 2, footer, 1);
-    drawStatusBar();
+        const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12;
+        if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
+        for (int r = 0; r < visible && scroll + r < l.size(); r++)
+            canvas.drawString(l[scroll + r], 8, first + r * 12, 1);
+        if (scroll) canvas.drawRightString("^", tftWidth - 7, first, 1);
+        if (scroll + visible < l.size()) canvas.drawRightString("v", tftWidth - 7, footer - 12, 1);
+        canvas.drawCentreString("Turn scroll  Hold actions", tftWidth / 2, footer, 1);
+    });
 }
 bool confirmAction(const String &title, const std::vector<String> &messages) {
     const uint32_t start = millis();
+        recon::ui::renderFrame([&](auto &canvas) {
+            canvas.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
+            canvas.drawCentreString(title, tftWidth / 2, 31, 1);
+            canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+            int y = 54;
+            for (const String &m : messages) {
+                canvas.drawCentreString(m, tftWidth / 2, y, 1);
+                y += 15;
+            }
+            canvas.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
+            canvas.drawCentreString("Select: continue  Esc: cancel", tftWidth / 2, tftHeight - 21, 1);
+        });
     while (true) {
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-        tft.drawCentreString(title, tftWidth / 2, 31, 1);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        int y = 54;
-        for (const String &m : messages) {
-            tft.drawCentreString(m, tftWidth / 2, y, 1);
-            y += 15;
-        }
-        tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-        tft.drawCentreString("Select: continue  Esc: cancel", tftWidth / 2, tftHeight - 21, 1);
-        drawStatusBar();
         if (check(EscPress)) return false;
         if (millis() - start > 650 && check(SelPress)) return true;
         delay(25);
@@ -1410,16 +1411,15 @@ void runActiveScan() {
     pBLEScan->setScanCallbacks(&snifferCallbacks, true);
     pBLEScan->start(0, false, true);
     const uint32_t start = millis();
+        recon::ui::renderFrame([&](auto &canvas) {
+            canvas.setTextColor(TFT_RED, bruceConfig.bgColor);
+            canvas.drawCentreString("ACTIVE - TRANSMITTING", tftWidth / 2, 40, 1);
+            canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+            canvas.drawCentreString("BLE scan requests are on air", tftWidth / 2, 65, 1);
+            canvas.drawCentreString("Esc stops burst early", tftWidth / 2, tftHeight - 21, 1);
+        });
     while (millis() - start < 3000) {
         recon::capture.drain();
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(TFT_RED, bruceConfig.bgColor);
-        tft.drawCentreString("ACTIVE - TRANSMITTING", tftWidth / 2, 40, 1);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString("BLE scan requests are on air", tftWidth / 2, 65, 1);
-        tft.drawCentreString("Esc stops burst early", tftWidth / 2, tftHeight - 21, 1);
-        drawStatusBar();
         if (check(EscPress)) break;
         delay(80);
     }
@@ -1505,45 +1505,51 @@ GattResult enumerateGatt(const BleObservation &t) {
 void showGatt(const GattResult &r, const String &identity) {
     bool tech = false;
     size_t scroll = 0;
+    bool redraw = true;
+    size_t lineCount = 0;
     while (!check(EscPress)) {
-        std::vector<String> l;
-        if (!r.connected) appendWrapped(l, r.error.isEmpty() ? "Connection failed" : r.error);
-        else if (!r.discovered) appendWrapped(l, r.error.isEmpty() ? "GATT discovery failed" : r.error);
-        else {
-            appendWrapped(l, tech ? "STRUCTURE ONLY - NO VALUES READ" : "GATT mapped; disconnected");
-            appendWrapped(
-                l,
-                String(r.services) + " services  " + String(r.characteristics) + " chars  " +
-                    String(r.descriptors) + " desc"
-            );
-            appendWrapped(l, String(r.readable) + " readable  " + String(r.writable) + " writable");
-            appendWrapped(l, String(r.notify) + " notify  " + String(r.indicate) + " indicate");
-            if (tech)
-                for (const String &x : r.tree) l.push_back(x);
-            else
-                for (const String &x : r.serviceLines) appendWrapped(l, "Service: " + x);
-            if (r.truncated) appendWrapped(l, "Technical tree truncated");
+        if (redraw) {
+            std::vector<String> l;
+            if (!r.connected) appendWrapped(l, r.error.isEmpty() ? "Connection failed" : r.error);
+            else if (!r.discovered) appendWrapped(l, r.error.isEmpty() ? "GATT discovery failed" : r.error);
+            else {
+                appendWrapped(l, tech ? "STRUCTURE ONLY - NO VALUES READ" : "GATT mapped; disconnected");
+                appendWrapped(
+                    l,
+                    String(r.services) + " services  " + String(r.characteristics) + " chars  " +
+                        String(r.descriptors) + " desc"
+                );
+                appendWrapped(l, String(r.readable) + " readable  " + String(r.writable) + " writable");
+                appendWrapped(l, String(r.notify) + " notify  " + String(r.indicate) + " indicate");
+                if (tech)
+                    for (const String &x : r.tree) appendWrapped(l, x);
+                else
+                    for (const String &x : r.serviceLines) appendWrapped(l, "Service: " + x);
+                if (r.truncated) appendWrapped(l, "Technical tree truncated");
+            }
+            recon::ui::renderFrame([&](auto &canvas) {
+                canvas.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
+                canvas.drawCentreString(tech ? "GATT TECHNICAL" : "GATT PLAIN", tftWidth / 2, 29, 1);
+                canvas.drawCentreString(identity, tftWidth / 2, 42, 1);
+                canvas.setTextColor(TFT_GREEN, bruceConfig.bgColor);
+                canvas.drawCentreString("DISCONNECTED - NO VALUES", tftWidth / 2, 54, 1);
+                const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12;
+                if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
+                for (int row = 0; row < visible && scroll + row < l.size(); row++)
+                    canvas.drawString(l[scroll + row], 8, first + row * 12, 1);
+                canvas.drawCentreString("Turn scroll  Select tree  Esc", tftWidth / 2, footer, 1);
+            });
+            lineCount = l.size();
+            redraw = false;
         }
-        tft.fillScreen(bruceConfig.bgColor);
-        drawMainBorder(false);
-        tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-        tft.drawCentreString(tech ? "GATT TECHNICAL" : "GATT PLAIN", tftWidth / 2, 29, 1);
-        tft.drawCentreString(identity, tftWidth / 2, 42, 1);
-        tft.setTextColor(TFT_GREEN, bruceConfig.bgColor);
-        tft.drawCentreString("DISCONNECTED - NO VALUES", tftWidth / 2, 54, 1);
-        const int first = 69, footer = tftHeight - 19, visible = (footer - first) / 12;
-        if (scroll >= l.size()) scroll = l.empty() ? 0 : l.size() - 1;
-        for (int row = 0; row < visible && scroll + row < l.size(); row++)
-            tft.drawString(l[scroll + row], 8, first + row * 12, 1);
-        if (check(PrevPress) && scroll) scroll--;
-        if (check(NextPress)) scroll++;
+        if (check(PrevPress) && scroll) { --scroll; redraw = true; }
+        if (check(NextPress) && scroll + 1 < lineCount) { ++scroll; redraw = true; }
         if (check(SelPress)) {
             tech = !tech;
             scroll = 0;
+            redraw = true;
             delay(100);
         }
-        tft.drawCentreString("Turn scroll  Select tree  Esc", tftWidth / 2, footer, 1);
-        drawStatusBar();
         delay(20);
     }
 }

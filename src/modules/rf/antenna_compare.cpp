@@ -62,6 +62,7 @@ bool measure(unsigned phase, bool ble, float frequency) {
     const uint32_t start = millis();
     unsigned count = 0;
     bool cancelled = false;
+    unsigned drawnCount = COUNT + 1;
     while (count < COUNT && millis() - start < 45000) {
         if (check(EscPress)) { cancelled = true; break; }
         if (ble) {
@@ -69,9 +70,12 @@ bool measure(unsigned phase, bool ble, float frequency) {
         } else {
             captured[count++] = ELECHOUSE_cc1101.getRssi();
         }
+        if (count != drawnCount) {
         header("Measuring " + String(count) + "/24");
         tft.drawString("Keep everything still", 4, 40);
         tft.drawString("ESC cancels without saving", 4, 60);
+        drawnCount = count;
+        }
         delay(ble ? 30 : 150);
     }
     if (ble) {
@@ -233,7 +237,9 @@ void rf_antenna_profiles() {
     for (unsigned i = 1; i < count; ++i) { lo = std::min(lo, points[i].value); hi = std::max(hi, points[i].value); }
     if (hi - lo < 1) { lo -= .5f; hi += .5f; }
     unsigned selected = 0;
+    bool redraw = true;
     while (!check(EscPress)) {
+        if (redraw) {
         header(vna ? "VNA S11 / imported calibration" : "PROFILE / " + radio);
         const auto &p = points[selected];
         tft.drawString(p.frequency ? String(p.frequency, 3) + " MHz" : "BLE advertising channels pooled", 4, 23);
@@ -246,8 +252,10 @@ void rf_antenna_profiles() {
         }
         tft.drawString("Y " + String(lo,1) + ".." + String(hi,1) + " dB  " + String(selected+1) + "/" + String(count), 4, 133);
         tft.drawString(capped ? "128 point limit / ESC back" : ignored ? "Ignored " + String(ignored) + " invalid rows / ESC" : "Turn points / ESC back", 4, tftHeight-14);
-        if (check(PrevPress)) selected = (selected + count - 1) % count;
-        if (check(NextPress)) selected = (selected + 1) % count;
+        redraw = false;
+        }
+        if (check(PrevPress)) { selected = (selected + count - 1) % count; redraw = true; }
+        if (check(NextPress)) { selected = (selected + 1) % count; redraw = true; }
         delay(40);
     }
 }

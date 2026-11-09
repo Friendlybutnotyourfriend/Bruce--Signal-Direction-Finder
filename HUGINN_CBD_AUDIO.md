@@ -85,3 +85,12 @@ install, not a bare-device initial flash.
 
 **Status:** Implementation committed; hardware acceptance outstanding.
 Do not label the release stable before the tests above pass.
+
+## Info-screen repair
+
+The shared border renderer now restores its small font after drawing touch
+buttons. Hunter details, GATT results, confirmations and antenna profile
+viewers no longer repaint continuously while idle. CBD Hunter/Sniffer body
+frames are rendered offscreen, then transferred without blanking the full
+display. Long technical GATT lines wrap. The audio troubleshooting changes
+above are included. Physical display and speaker acceptance remains pending.

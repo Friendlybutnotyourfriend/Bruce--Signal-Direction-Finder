@@ -902,6 +902,9 @@ void drawMainBorder(bool clear) {
 #if defined(HAS_TOUCH)
     TouchFooter();
 #endif
+    // Footer labels use FM; callers lay out body text from the small-font default.
+    setTftDisplay(12, 12, bruceConfig.priColor, 1, bruceConfig.bgColor);
+    tft.setTextFont(1);
 }
 
 void drawMainBorderWithTitle(String title, bool clear) {
