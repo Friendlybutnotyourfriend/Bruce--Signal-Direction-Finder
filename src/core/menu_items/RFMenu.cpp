@@ -1,4 +1,5 @@
 #include "RFMenu.h"
+#include "modules/rf_lab/rf_lab.h"
 #include "core/display.h"
 #include "core/settings.h"
 #include "core/utils.h"
@@ -52,6 +53,10 @@ void RFMenu::optionsMenu() {
         {"Radio Control",  []() { RadioControl::ccMenu(); }},
         {"Config",          [this]() { configMenu(); }},
     };
+#endif
+
+#if !defined(LITE_VERSION)
+    options.push_back({"RF Black Box / Finder", rfLabMenu});
 #endif
     addOptionToMainMenu();
 
