@@ -20,6 +20,15 @@ struct Profile {
     uint8_t nrfChannel = 76; // 2476 MHz
 };
 
+struct ReceiveSettings {
+    float frequencyMHz = 433.92f;
+    uint8_t modulation = 2;
+    float rateKBaud = 4.8f;
+    float bandwidthKHz = 203.125f;
+};
+// Session-only settings: never enable persistent TX overrides.
+bool validReceiveSettings(const ReceiveSettings &settings);
+bool applyReceiveSettings(const ReceiveSettings &settings);
 const Profile &profile();
 void ccMenu();
 void nrfMenu();

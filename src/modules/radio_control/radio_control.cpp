@@ -5,6 +5,7 @@
 #include "modules/rf/rf_utils.h"
 
 #include <Preferences.h>
+#include <cmath>
 #include <RF24.h>
 #include <globals.h>
 #include <vector>
@@ -137,6 +138,32 @@ void applyCcModulationAndRate() {
     if (!p.ccEnabled) return;
     ELECHOUSE_cc1101.setModulation(p.ccModulation);
     ELECHOUSE_cc1101.setDRate(CC_RATE[p.ccRateIndex]);
+}
+
+bool validReceiveSettings(const ReceiveSettings &s) {
+    if (!std::isfinite(s.frequencyMHz) || !std::isfinite(s.rateKBaud) ||
+        !std::isfinite(s.bandwidthKHz)) return false;
+#if defined(FENRIR_EBYTE)
+    const bool band = s.frequencyMHz >= 425.0f && s.frequencyMHz <= 450.5f;
+#else
+    const bool band = (s.frequencyMHz >= 300 && s.frequencyMHz <= 348) ||
+                      (s.frequencyMHz >= 387 && s.frequencyMHz <= 464) ||
+                      (s.frequencyMHz >= 779 && s.frequencyMHz <= 928);
+#endif
+    return band && s.modulation <= 2 && s.rateKBaud >= 1.2f && s.rateKBaud <= 50 &&
+           s.bandwidthKHz >= 58 && s.bandwidthKHz <= 812.5f;
+}
+
+bool applyReceiveSettings(const ReceiveSettings &s) {
+    if (bruceConfigPins.rfModule != CC1101_SPI_MODULE || !validReceiveSettings(s)) return false;
+    ELECHOUSE_cc1101.setSidle();
+    ELECHOUSE_cc1101.setModulation(s.modulation);
+    ELECHOUSE_cc1101.setDRate(s.rateKBaud);
+    ELECHOUSE_cc1101.setRxBW(s.bandwidthKHz);
+    ELECHOUSE_cc1101.setPktFormat(3);
+    setMHZ(s.frequencyMHz);
+    ELECHOUSE_cc1101.SetRx();
+    return true;
 }
 
 void applyCcTxPower() {
