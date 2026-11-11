@@ -3,6 +3,7 @@
 #include "core/settings.h"
 #include "core/utils.h"
 #include "modules/rf/antenna_id.h"
+#include "modules/radio_control/radio_control.h"
 #include "modules/rf/record.h"
 #include "modules/rf/rf_bruteforce.h"
 #include "modules/rf/rf_jammer.h"
@@ -12,7 +13,24 @@
 #include "modules/rf/rf_spectrum.h"
 #include "modules/rf/rf_waterfall.h"
 
+#if defined(FENRIR_EBYTE)
+void fenrirRssiScan();
+#endif
+
 void RFMenu::optionsMenu() {
+#if defined(FENRIR_EBYTE)
+    options = {
+        {"Scan/copy", []() { RFScan(); }},
+        {"Record RAW", rf_raw_record},
+        {"Custom SubGhz", sendCustomRF},
+        {"E07 narrowband RSSI", fenrirRssiScan},
+        {"Antenna ID", rf_antenna_id},
+        {"Bruteforce", rf_bruteforce},
+        {"Jammer", []() { RFJammer(true); }},
+        {"Radio Control", []() { RadioControl::ccMenu(); }},
+        {"Config", [this]() { configMenu(); }},
+    };
+#else
     options = {
         {"Scan/copy",       [=]() { RFScan(); }       },
 #if !defined(LITE_VERSION)
@@ -31,8 +49,10 @@ void RFMenu::optionsMenu() {
         {"Bruteforce",      rf_bruteforce             }, // dev_eclipse
         {"Jammer",          [=]() { RFJammer(true); } },
 #endif
+        {"Radio Control",  []() { RadioControl::ccMenu(); }},
         {"Config",          [this]() { configMenu(); }},
     };
+#endif
     addOptionToMainMenu();
 
     delay(200);

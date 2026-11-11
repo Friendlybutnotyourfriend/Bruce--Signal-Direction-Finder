@@ -1,0 +1,104 @@
+name: Radio Control Centre - Smoochiee compile
+
+on:
+  push:
+    branches:
+      - agent/radio-control-centre-v1
+    paths:
+      - "src/modules/radio_control/**"
+      - "src/core/menu_items/RFMenu.cpp"
+      - "src/core/menu_items/NRF24.cpp"
+      - "src/modules/rf/rf_utils.cpp"
+      - "src/modules/NRF24/nrf_common.cpp"
+      - ".github/workflows/radio_control_ci.yml"
+      - "platformio.ini"
+      - "src/modules/df/**"
+      - "src/modules/rf/**"
+      - "src/modules/badusb_ble/**"
+      - "src/core/menu_items/BleMenu.cpp"
+      - "src/core/menu_items/DfMenu.cpp"
+      - "src/core/utils.cpp"
+      - "src/core/settings.cpp"
+      - "include/precompiler_flags.h"
+      - "patch*.py"
+      - "build.py"
+      - "tests/recon_core_test.cpp"
+      - "tests/test_sessions.py"
+      - "tools/recon*"
+      - "boards/fenrir-ebyte/**"
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+      - name: Compile ESP32-S3 Smoochiee
+        run: platformio run -e smoochiee-board
+      - name: Upload application artifacts for bench testing
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-smoochiee
+          path: |
+            .pio/build/smoochiee-board/firmware.bin
+          if-no-files-found: error
+          retention-days: 7
+
+  compatibility:
+    name: Compile ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - lilygo-t-embed-cc1101
+          - m5stack-cardputer
+          - nm-cyd-c5
+          - fenrir-ebyte
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+      - name: Compile radio-control port
+        run: platformio run -e ${{ matrix.environment }}
+      - name: Save application firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-${{ matrix.environment }}
+          path: .pio/build/${{ matrix.environment }}/firmware.bin
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save merged Fenrir image
+        if: ${{ success() && matrix.environment == 'fenrir-ebyte' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-fenrir-ebyte-merged
+          path: Bruce-fenrir-ebyte.bin
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save merged T-Embed image for Launcher
+        if: ${{ success() && matrix.environment == 'lilygo-t-embed-cc1101' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-t-embed-launcher-merged
+          path: Bruce-lilygo-t-embed-cc1101.bin
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save merged NM-CYD-C5 image for Launcher
+        if: ${{ success() && matrix.environment == 'nm-cyd-c5' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: radio-control-nm-cyd-c5-launcher-merged
+          path: Bruce-nm-cyd-c5.bin
+          if-no-files-found: error
+          retention-days: 7
