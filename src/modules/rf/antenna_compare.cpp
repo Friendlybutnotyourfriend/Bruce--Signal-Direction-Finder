@@ -9,6 +9,7 @@
 #include <globals.h>
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace {
 constexpr unsigned COUNT = 24;
@@ -200,7 +201,9 @@ void rf_antenna_profiles() {
         file.close(); displayWarning("Import VNA with recon_session.py", true); return;
     }
     struct Point { float frequency, value, spread; bool valid; };
-    static Point points[128];
+    // Heap, not a function-static BSS array. A resident 2KB table is part of
+    // the internal DRAM that Cardputer ADV no longer has spare at boot.
+    std::vector<Point> points(128);
     unsigned count = 0, ignored = 0;
     String radio;
     while (file.available() && count < 128) {
@@ -232,7 +235,7 @@ void rf_antenna_profiles() {
     const bool capped = file.available();
     file.close();
     if (!count) { displayWarning("No valid profile points", true); return; }
-    std::sort(points, points + count, [](const Point &a, const Point &b) { return a.frequency < b.frequency; });
+    std::sort(points.data(), points.data() + count, [](const Point &a, const Point &b) { return a.frequency < b.frequency; });
     float lo = points[0].value, hi = lo;
     for (unsigned i = 1; i < count; ++i) { lo = std::min(lo, points[i].value); hi = std::max(hi, points[i].value); }
     if (hi - lo < 1) { lo -= .5f; hi += .5f; }

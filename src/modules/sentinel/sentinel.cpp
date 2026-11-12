@@ -27,6 +27,7 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include "core/lazy_ram.h"
 #include <nvs_flash.h>
 #include <stdio.h>
 #include <string.h>
@@ -162,9 +163,48 @@ struct Live {
     bool baseline_done;
 };
 
-BssidSlot g_bssid[kBssidCap];
-SsidGroup g_group[kGroupCap];
-BeaconHit g_beacon[kBeaconCap];
+// Not static DRAM. See lazy_ram.h. Indexed like the old arrays via the
+// reference helpers below, so sizeof(g_bssid) stays the full table.
+static BssidSlot *mem_bssid = nullptr;
+static SsidGroup *mem_group = nullptr;
+static BeaconHit *mem_beacon = nullptr;
+static Saved *mem_saved = nullptr;
+static Saved *mem_pending = nullptr;
+static Live *mem_live = nullptr;
+
+static bool ensureSentinelRam() {
+    if (mem_bssid && mem_group && mem_beacon && mem_saved && mem_pending && mem_live) return true;
+    if (!lazyRamArray(mem_bssid, static_cast<size_t>(kBssidCap))) return false;
+    if (!lazyRamArray(mem_group, static_cast<size_t>(kGroupCap))) return false;
+    if (!lazyRamArray(mem_beacon, static_cast<size_t>(kBeaconCap))) return false;
+    if (!lazyRamArray(mem_saved, static_cast<size_t>(kSavedCap))) return false;
+    if (!lazyRamArray(mem_pending, static_cast<size_t>(kPendingCap))) return false;
+    if (!lazyRam(mem_live)) return false;
+    return true;
+}
+
+static BssidSlot (&bssidArr())[kBssidCap] {
+    return *reinterpret_cast<BssidSlot (*)[kBssidCap]>(mem_bssid);
+}
+static SsidGroup (&groupArr())[kGroupCap] {
+    return *reinterpret_cast<SsidGroup (*)[kGroupCap]>(mem_group);
+}
+static BeaconHit (&beaconArr())[kBeaconCap] {
+    return *reinterpret_cast<BeaconHit (*)[kBeaconCap]>(mem_beacon);
+}
+static Saved (&savedArr())[kSavedCap] {
+    return *reinterpret_cast<Saved (*)[kSavedCap]>(mem_saved);
+}
+static Saved (&pendingArr())[kPendingCap] {
+    return *reinterpret_cast<Saved (*)[kPendingCap]>(mem_pending);
+}
+#define g_bssid bssidArr()
+#define g_group groupArr()
+#define g_beacon beaconArr()
+#define g_saved savedArr()
+#define g_pending pendingArr()
+#define g_live (*mem_live)
+
 int g_beacon_n = 0;
 bool g_beacon_capped = false;
 SpamAddr g_spam[kSpamCap];
@@ -177,12 +217,9 @@ bool g_hid_full = false;
 TrackerSlot g_track[kTrackerCap];
 bool g_track_full = false;
 Cool g_cool[16];
-Saved g_saved[kSavedCap];
 uint8_t g_saved_count = 0;
 uint8_t g_saved_next = 0;
-Saved g_pending[kPendingCap];
 uint8_t g_pending_n = 0;
-Live g_live;
 uint32_t g_window_start = 0;
 uint32_t g_ble_listen_ms = 0;
 bool g_baseline_done = false;
@@ -801,6 +838,11 @@ void score_tick(uint32_t now) {
 
 void worker_task(void *arg) {
     (void)arg;
+    if (!ensureSentinelRam()) {
+        g_worker_run = false;
+        vTaskDelete(nullptr);
+        return;
+    }
     WifiNote wifi;
     BleNote ble;
     while (g_worker_run) {
@@ -1339,6 +1381,10 @@ void hop_channel(bool wifi_on) {
 }
 
 void sentinel_watch(WatchMode mode) {
+    if (!ensureSentinelRam()) {
+        displayError("Not enough RAM", true);
+        return;
+    }
     if (g_mu != nullptr && xSemaphoreTake(g_mu, pdMS_TO_TICKS(50)) == pdTRUE) {
         session_reset();
         xSemaphoreGive(g_mu);
@@ -1470,6 +1516,10 @@ void sentinel_help() {
 }
 
 void sentinel_review() {
+    if (!ensureSentinelRam()) {
+        displayError("Not enough RAM", true);
+        return;
+    }
     Saved copy[kSavedCap];
     uint8_t count = 0;
     uint8_t next = 0;

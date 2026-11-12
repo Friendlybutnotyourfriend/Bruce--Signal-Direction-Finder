@@ -4,11 +4,15 @@
 #include "core/utils.h"
 #include "core/sd_functions.h"
 #include "modules/ble/ble_common.h"
+#include "core/lazy_ram.h"
 #include <ArduinoJson.h>
 #include <globals.h>
 
 namespace {
-recon::Association replayEngine; // Keep the multi-format model off the Arduino task stack.
+// Off the loop-task stack, and off internal DRAM until a session is opened.
+static recon::Association *memReplay = nullptr;
+static bool ensureReplayRam() { return lazyRam(memReplay) != nullptr; }
+#define replayEngine (*memReplay)
 struct Summary {
     char target[18]{};
     uint32_t reports = 0, selected = 0, handoffs = 0, dropped = 0, truncated = 0, errors = 0;
@@ -147,6 +151,10 @@ void showSummary(const Summary &a, const Summary *b = nullptr) {
 }
 
 void bleSessionReview() {
+    if (!ensureReplayRam()) {
+        displayError("Not enough RAM", true);
+        return;
+    }
     stopBLEStack();
     if (!setupSdCard()) { displayWarning("Insert SD card", true); return; }
     int action = -1;

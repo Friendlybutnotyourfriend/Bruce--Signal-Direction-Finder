@@ -11,6 +11,7 @@
 #include "core/sd_functions.h"
 #endif
 #include "modules/others/audio.h"
+#include "core/lazy_ram.h"
 #include <esp_timer.h>
 
 #include "core/display.h"
@@ -218,21 +219,39 @@ private:
     size_t count = 0, index = 0;
 };
 portMUX_TYPE reconMux = portMUX_INITIALIZER_UNLOCKED;
-HunterState hunterState;
-SnifferState snifferState;
+// Allocated on first use into PSRAM when the board has it. See lazy_ram.h.
+// These snapshots are several kilobytes each and used to sit in internal DRAM
+// for the whole boot, which is enough to make Cardputer ADV reset under Launcher.
+static HunterState *memHunter = nullptr;
+static SnifferState *memSniffer = nullptr;
+static HunterState *memUiHunter = nullptr;
+static SnifferState *memUiSniffer = nullptr;
+static SnifferState *memUiFrozen = nullptr;
+static recon::Association *memAssociation = nullptr;
+static bool ensureReconRam() {
+    if (memHunter && memSniffer && memUiHunter && memUiSniffer && memUiFrozen && memAssociation) return true;
+    if (!lazyRam(memHunter)) return false;
+    if (!lazyRam(memSniffer)) return false;
+    if (!lazyRam(memUiHunter)) return false;
+    if (!lazyRam(memUiSniffer)) return false;
+    if (!lazyRam(memUiFrozen)) return false;
+    if (!lazyRam(memAssociation)) return false;
+    return true;
+}
+#define hunterState (*memHunter)
+#define snifferState (*memSniffer)
+#define uiHunterSnap (*memUiHunter)
+#define uiSnifferSnap (*memUiSniffer)
+#define uiFrozenSnap (*memUiFrozen)
+#define association (*memAssociation)
 MedianWindow medianWindow;
 char selectedAddress[18]{};
 bool activeBurst = false;
-// UI snapshots stay off the Arduino task stack; callbacks update state under reconMux.
-HunterState uiHunterSnap;
-SnifferState uiSnifferSnap;
-SnifferState uiFrozenSnap;
 template <typename T> void reinit(T &x) {
     x.~T();
     new (&x) T();
 }
 void updateFingerprint(FingerprintModel &, const BleObservation &);
-recon::Association association;
 BleObservation previousTarget;
 recon::Status associationStatus() {
     portENTER_CRITICAL(&reconMux);
@@ -690,7 +709,7 @@ void pushHistory(HunterState &s, const char *a) {
 class HunterCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device) return;
+        if (!device || !ensureReconRam()) return;
         BleObservation o;
         fillObservation(device, o);
         const uint32_t now = millis();
@@ -1109,7 +1128,7 @@ void updateFcf1(Fcf1Tracker &f, const BleObservation &o, uint32_t now) {
 class SnifferCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device) return;
+        if (!device || !ensureReconRam()) return;
         static uint32_t lastLog = 0;
         logReconMemory("SNIFFER_HOST", lastLog);
         BleObservation o;
@@ -1722,6 +1741,10 @@ void sniffTarget(const BleObservation &t) {
 } // namespace
 
 void bleHunterV3() {
+    if (!ensureReconRam()) {
+        displayError("Not enough RAM", true);
+        return;
+    }
     const std::vector<BleObservation> targets = discoverTargets(false);
     if (targets.empty()) {
         displayWarning("No BLE advertisers found", true);
@@ -1742,6 +1765,10 @@ void bleHunterV3() {
     stopBLEStack();
 }
 void bleSnifferV3() {
+    if (!ensureReconRam()) {
+        displayError("Not enough RAM", true);
+        return;
+    }
     const std::vector<BleObservation> targets = discoverTargets(false);
     if (targets.empty()) {
         displayWarning("No BLE advertisers found", true);
