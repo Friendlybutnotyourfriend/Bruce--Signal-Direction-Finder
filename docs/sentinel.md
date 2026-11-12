@@ -14,7 +14,7 @@ ESP32-C5 (NM-CYD-C5) can put the radio in monitor mode on 5 GHz, and Bruce's exi
 
 - **Deauth / disassoc rate** per BSSID, over a one-second window of frames actually received.
 - **Beacon flood pattern:** many network names heard once in that second. Names that keep repeating are labelled busy air, not a flood.
-- **Same name, different access point** or a different security class. A normal multi-AP network often uses one name on several radios. Open plus encrypted is a sharper pattern and is still not a claim about who is transmitting.
+- **Same name, different access point** or a different security class. A normal multi-AP network often uses one name on several radios. Open plus encrypted is a sharper pattern and is still not a claim about who is transmitting. SSID and the RSN element are taken from the whole beacon. The frame check sequence is not treated as a tag.
 - **Karma-style probe responses:** one access point answering for several network names. The names themselves are not stored. A hidden network answering for its own name is not treated as this pattern.
 
 BLE uses a passive scan (no scan requests, no connection). The NimBLE callback only copies the address, RSSI, and the first 31 advertisement bytes into a queue. A worker scores them. Popup families are evidence of a family, not of a device identity:
@@ -24,10 +24,12 @@ BLE uses a passive scan (no scan requests, no connection). The NimBLE callback o
 - Swift Pair
 - Samsung EasySetup popup shape (Galaxy Buds / Watch style manufacturer data)
 
+A popup flood is several addresses each heard once, at a high rate. The same addresses repeating, which is what a room of phones advertising Nearby Info looks like, is busy air, not a flood.
+
 Also:
 
-- **New HID-over-GATT** advertisements (service `0x1812`) after a 20 second baseline of BLE listening. Keyboards and BadBLE-style devices look the same. Sentinel does not connect.
-- **Unknown tracker behaviour** for Apple Find My (`0x004C` / type `0x12`), Samsung SmartTag (`0xFD5A`), Tile (`0xFEED`), and Google Find My Device Network service data (`0xFE2C`, frame type `0x40`). SEL marks a checkpoint (8 maximum). A tracker-family address heard at two or more checkpoints, or heard continuously for 10 minutes, is the pattern. It may be your own tag. Rotating addresses are often missed.
+- **New HID-over-GATT** advertisements (service `0x1812`) after a 20 second baseline of BLE listening. Keyboards and BadBLE-style devices look the same. Sentinel does not connect. When the 24-address table is full, the oldest address is replaced so a later device can still be recorded.
+- **Unknown tracker behaviour** for Apple Find My (`0x004C` / type `0x12`), Samsung SmartTag (`0xFD5A`), Tile (`0xFEED`), and Google Find My Device Network service data (`0xFE2C`, frame type `0x40`). SEL marks a checkpoint (8 maximum). A tracker-family address heard at two or more checkpoints, or heard continuously for 10 minutes, is the pattern. It may be your own tag. Rotating addresses are often missed. When the 16-slot table is full, the oldest slot that has no checkpoint mark is replaced. A slot you have marked is kept.
 
 Wi-Fi and BLE share the radio. **Alternate radios** runs about 8 seconds of Wi-Fi, a gap while the stack changes, then about 6 seconds of BLE. Nothing is heard during the gap. If a mode is refused, Sentinel says so and does not pretend that band is covered.
 
@@ -53,7 +55,7 @@ If the clock is not set, the name uses the boot millisecond counter. The file be
 | `detail` | Bounded text. No advertisement payload and no probe names |
 | `drops` | Frames the queue could not accept. Those frames were not scored |
 
-Caps, also written into the file header: 128 SSID hashes per second, 24 BSSIDs, 8 probe-name hashes per BSSID, 24 BLE addresses per second, 24 HID baseline addresses, 16 trackers, 8 checkpoints, 262144 bytes. At the cap the count stops and the detail or a final note says so. The same pattern is not logged again for 10 seconds (60 seconds at low, 30 seconds at info) unless the severity rises.
+Caps, also written into the file header: 128 SSID hashes per second, 24 BSSIDs, 8 probe-name hashes per BSSID, 24 BLE addresses per second, 24 HID baseline addresses, 16 trackers, 8 checkpoints, 262144 bytes. SSID hashes stop at the cap. A full tracker table replaces the oldest slot with no checkpoint mark. The HID table replaces its oldest slot. The same pattern is not logged again for 10 seconds (60 seconds at low, 30 seconds at info) unless the severity rises.
 
 ## Thresholds
 
@@ -61,9 +63,9 @@ Host-tested in `src/modules/sentinel/sentinel_score.cpp`:
 
 - Deauth frames in one second, channel locked: low 8, medium 25, high 60. While hopping: low 3, medium 8, high 20.
 - Beacon names in one second, and at least 70% of them seen once: low 30, medium 60, high 120. Many repeating names are info, not a flood.
-- Same SSID on 2+ fresh BSSIDs: low. Known security classes differ: medium. One open and one encrypted: high.
+- Same SSID on 2+ fresh BSSIDs: low. Known security classes differ: medium. One open and one encrypted: high. SSID and RSN are read from the whole beacon, not from the first 80 tag bytes, so a long name plus a country tag still reaches the RSN element. The frame check sequence is not parsed as a tag.
 - Karma extras (names that are not the beacon name): low 2, medium 4, high 8. A hidden beacon's own probe name does not count. With no beacon at all, fewer than 3 probe names does not count.
-- BLE popup family: info if the rate is high but fewer than 3 addresses. Low/medium/high need both a rate and several addresses.
+- BLE popup family: low/medium/high need a rate, several addresses, and at least 70% of those addresses heard once. Repeating addresses at a high rate are info (a crowd), same as repeating beacon names. Fewer than 3 one-shot addresses at a high rate is also info.
 - New HID addresses in the window: low at 1, medium at 4, after the baseline.
 - Tracker checkpoints you marked: medium at 2, high at 3. One checkpoint that stays audible for 10 minutes is low.
 
@@ -82,9 +84,11 @@ The scoring, frame classification, and log lines do not need the ESP32 SDK:
 
 ```sh
 g++ -std=c++11 -Wall -Wextra -Werror -I src/modules/sentinel \
-  test/sentinel/test_sentinel_score.cpp src/modules/sentinel/sentinel_score.cpp \
+  tests/sentinel_score_test.cpp src/modules/sentinel/sentinel_score.cpp \
   -o /tmp/sentinel_score_test && /tmp/sentinel_score_test
 ```
+
+That command is also the Sentinel job in `.github/workflows/sentinel.yml`, so it runs on pull requests.
 
 Verified firmware targets, both official 1.16.1 envs and not lite builds:
 

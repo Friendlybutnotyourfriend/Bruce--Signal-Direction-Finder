@@ -1,0 +1,29 @@
+name: Sentinel host tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - cursor/sentinel-316d
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  score:
+    name: Sentinel scoring and tag parsing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -I src/modules/sentinel \
+            tests/sentinel_score_test.cpp src/modules/sentinel/sentinel_score.cpp \
+            -o /tmp/sentinel_score_test
+          /tmp/sentinel_score_test

@@ -7,7 +7,7 @@ static int g_fails = 0;
 
 static void expect(bool cond, const char *expr, int line) {
     if (cond) return;
-    fprintf(stderr, "FAIL %s:%d %s\n", "test_sentinel_score.cpp", line, expr);
+    fprintf(stderr, "FAIL %s:%d %s\n", "sentinel_score_test.cpp", line, expr);
     g_fails++;
 }
 
@@ -113,13 +113,19 @@ int main() {
     KarmaInput no_beacon_many = {false, false, 8, 8};
     EXPECT(score_karma(no_beacon_many) == Severity::High);
 
-    EXPECT(score_ble_spam(50, 1) == Severity::Info);
-    EXPECT(score_ble_spam(50, 2) == Severity::Info);
-    EXPECT(score_ble_spam(8, 3) == Severity::Low);
-    EXPECT(score_ble_spam(20, 5) == Severity::Medium);
-    EXPECT(score_ble_spam(40, 8) == Severity::High);
-    EXPECT(score_ble_spam(7, 10) == Severity::None);
-    EXPECT(score_ble_spam(40, 4) == Severity::Low);
+    // Third argument is addresses heard once. These cases are one-shot addresses.
+    EXPECT(score_ble_spam(50, 1, 1) == Severity::Info);
+    EXPECT(score_ble_spam(50, 2, 2) == Severity::Info);
+    EXPECT(score_ble_spam(8, 3, 3) == Severity::Low);
+    EXPECT(score_ble_spam(20, 5, 5) == Severity::Medium);
+    EXPECT(score_ble_spam(40, 8, 8) == Severity::High);
+    EXPECT(score_ble_spam(7, 10, 10) == Severity::None);
+    EXPECT(score_ble_spam(40, 4, 4) == Severity::Low);
+    // Eight phones repeating Nearby Info is a crowd, not a flood.
+    EXPECT(score_ble_spam(50, 8, 0) == Severity::Info);
+    EXPECT(score_ble_spam(40, 8, 2) == Severity::Info);
+    EXPECT(score_ble_spam(40, 8, 6) == Severity::High);
+    EXPECT(score_ble_spam(10, 8, 0) == Severity::None);
 
     EXPECT(score_new_hid(0) == Severity::None);
     EXPECT(score_new_hid(1) == Severity::Low);
@@ -192,6 +198,74 @@ int main() {
     EXPECT(classify_ble_ad(tag, sizeof(tag)).tracker == TrackerFamily::SamsungSmartTag);
     uint8_t tile[] = {0x03, 0x03, 0xed, 0xfe};
     EXPECT(classify_ble_ad(tile, sizeof(tile)).tracker == TrackerFamily::Tile);
+
+    uint8_t used[4] = {1, 1, 1, 0};
+    uint8_t bits[4] = {0, 1, 0, 0};
+    uint32_t first_ms[4] = {100, 1, 400, 0};
+    EXPECT(oldest_unmarked_slot(used, bits, first_ms, 4, 1000) == 0);
+    bits[0] = 1;
+    EXPECT(oldest_unmarked_slot(used, bits, first_ms, 4, 1000) == 2);
+    bits[2] = 3;
+    EXPECT(oldest_unmarked_slot(used, bits, first_ms, 4, 1000) == -1);
+    uint8_t hid_used[3] = {1, 1, 1};
+    uint8_t hid_bits[3] = {0, 0, 0};
+    uint32_t hid_first[3] = {50, 20, 80};
+    EXPECT(oldest_unmarked_slot(hid_used, hid_bits, hid_first, 3, 100) == 1);
+    EXPECT(oldest_unmarked_slot(nullptr, hid_bits, hid_first, 3, 100) == -1);
+
+    EXPECT(mgmt_len_without_fcs(40) == 36);
+    EXPECT(mgmt_len_without_fcs(3) == 3);
+    uint8_t short_frame[40];
+    memset(short_frame, 0, sizeof(short_frame));
+    short_frame[0] = 0x80;
+    short_frame[34] = 0x01;
+    short_frame[36] = 0;
+    short_frame[37] = 2;
+    short_frame[38] = 'F';
+    short_frame[39] = 'A';
+    WifiTagParse fcs_kept = parse_mgmt_tags(short_frame, 40);
+    EXPECT(fcs_kept.has_ssid);
+    EXPECT(fcs_kept.ssid_len == 2);
+    EXPECT(strcmp(fcs_kept.ssid, "FA") == 0);
+    WifiTagParse fcs_dropped = parse_mgmt_tags(short_frame, mgmt_len_without_fcs(40));
+    EXPECT(!fcs_dropped.has_ssid);
+    EXPECT(fcs_dropped.ssid_len == 0);
+
+    uint8_t beacon[160];
+    memset(beacon, 0, sizeof(beacon));
+    beacon[0] = 0x80;
+    beacon[34] = 0x11;
+    beacon[35] = 0x00;
+    size_t at = 36;
+    beacon[at++] = 0;
+    beacon[at++] = 32;
+    memset(beacon + at, 'A', 32);
+    at += 32;
+    beacon[at++] = 7;
+    beacon[at++] = 6;
+    memcpy(beacon + at, "US ", 3);
+    beacon[at + 3] = 1;
+    beacon[at + 4] = 11;
+    beacon[at + 5] = 20;
+    at += 6;
+    beacon[at++] = 1;
+    beacon[at++] = 26;
+    at += 26;
+    uint8_t rsn[32];
+    uint8_t rsn_n = rsn_psk(2, rsn);
+    EXPECT(at == 36 + 70);
+    memcpy(beacon + at, rsn, rsn_n);
+    at += rsn_n;
+    WifiTagParse full = parse_mgmt_tags(beacon, at);
+    EXPECT(full.has_ssid);
+    EXPECT(full.ssid_len == 32);
+    EXPECT(strcmp(full.ssid, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") == 0);
+    EXPECT(full.security == WifiSecurity::Wpa2);
+    EXPECT(!full.truncated);
+    const uint8_t *ies = beacon + 36;
+    EXPECT(classify_wifi_security(0x0011, ies, 80, false) == WifiSecurity::Unknown ||
+           classify_wifi_security(0x0011, ies, 80, true) == WifiSecurity::Unknown);
+    EXPECT(classify_wifi_security(0x0011, ies, 80, true) == WifiSecurity::Unknown);
 
     for (int k = 0; k < (int)Kind::Count; k++) {
         for (int s = 0; s <= (int)Severity::High; s++) {

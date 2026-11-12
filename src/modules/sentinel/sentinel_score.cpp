@@ -121,7 +121,15 @@ Severity score_karma(KarmaInput in, Thresholds t) {
     return Severity::None;
 }
 
-Severity score_ble_spam(uint16_t ads_per_second, uint8_t unique_addrs, Thresholds t) {
+Severity score_ble_spam(uint16_t ads_per_second, uint8_t unique_addrs, uint8_t once_only, Thresholds t) {
+    if (unique_addrs == 0) return Severity::None;
+    if (once_only > unique_addrs) once_only = unique_addrs;
+    uint16_t once_pct = (uint16_t)((once_only * 100u) / unique_addrs);
+    bool spam_shape = once_pct >= t.ble_once_pct;
+    if (!spam_shape) {
+        if (ads_per_second >= t.ble_ads_info) return Severity::Info;
+        return Severity::None;
+    }
     if (unique_addrs >= t.ble_addrs_high && ads_per_second >= t.ble_ads_high) return Severity::High;
     if (unique_addrs >= t.ble_addrs_med && ads_per_second >= t.ble_ads_med) return Severity::Medium;
     if (unique_addrs >= t.ble_addrs_low && ads_per_second >= t.ble_ads_low) return Severity::Low;
@@ -176,7 +184,7 @@ const char *summary_for(Kind kind, Severity severity) {
         case Kind::EvilTwin: return "Same name, different access point";
         case Kind::KarmaProbe: return "Karma-style probe responses";
         case Kind::BleSpam:
-            return severity == Severity::Info ? "Spam family from few addresses" : "Advertisement spam family";
+            return severity == Severity::Info ? "Popup family, not a one-shot flood" : "Advertisement spam family";
         case Kind::HidGatt: return "New HID-over-GATT advertisement";
         case Kind::Tracker: return "Unknown tracker behaviour";
         case Kind::Note: return "Session note";
@@ -217,12 +225,13 @@ const char *explanation_for(Kind kind, Severity severity) {
                    "probe.";
         case Kind::BleSpam:
             if (severity == Severity::Info) {
-                return "Advertisements from a known popup family were elevated, but from too few addresses "
-                       "to call a flood. This is family evidence, not a device identity.";
+                return "Advertisements from a known popup family were elevated, but the addresses were "
+                       "repeating or there were too few of them. Ordinary phones keep advertising from the "
+                       "same address. This is family evidence, not a device identity.";
             }
             return "Elevated advertisements from a known popup family (Apple continuity, Fast Pair, Swift "
-                   "Pair, or Samsung EasySetup) came from several addresses. Family evidence only, not a "
-                   "device identity.";
+                   "Pair, or Samsung EasySetup) came from several addresses that were each heard once. "
+                   "Family evidence only, not a device identity.";
         case Kind::HidGatt:
             return "A new address advertised the HID-over-GATT service. Keyboards, mice, and BadBLE-style "
                    "devices all advertise this service. Sentinel did not connect.";
@@ -306,6 +315,59 @@ classify_wifi_security(uint16_t capability, const uint8_t *ies, size_t ie_len, b
     if (privacy && truncated) return WifiSecurity::Unknown;
     if (privacy) return WifiSecurity::Wep;
     return WifiSecurity::Open;
+}
+
+size_t mgmt_len_without_fcs(uint16_t sig_len) {
+    if (sig_len >= 4) return (size_t)sig_len - 4;
+    return sig_len;
+}
+
+WifiTagParse parse_mgmt_tags(const uint8_t *frame, size_t frame_len) {
+    WifiTagParse parsed;
+    memset(&parsed, 0, sizeof(parsed));
+    parsed.security = WifiSecurity::Unknown;
+    if (frame == nullptr || frame_len < 36) return parsed;
+    uint16_t capability = (uint16_t)frame[34] | ((uint16_t)frame[35] << 8);
+    const uint8_t *ies = frame + 36;
+    size_t ie_len = frame_len - 36;
+    uint8_t ssid_len = 0;
+    parsed.has_ssid = extract_ssid(ies, ie_len, parsed.ssid, sizeof(parsed.ssid), &ssid_len);
+    parsed.ssid_len = ssid_len;
+    bool truncated = false;
+    const uint8_t *p = ies;
+    const uint8_t *end = ies + ie_len;
+    while (p < end) {
+        if (p + 2 > end) {
+            truncated = true;
+            break;
+        }
+        uint8_t len = p[1];
+        if (p + 2 + (size_t)len > end) {
+            truncated = true;
+            break;
+        }
+        p += 2 + (size_t)len;
+    }
+    parsed.truncated = truncated;
+    parsed.security = classify_wifi_security(capability, ies, ie_len, truncated);
+    return parsed;
+}
+
+int oldest_unmarked_slot(
+    const uint8_t *used, const uint8_t *bits, const uint32_t *first_ms, int count, uint32_t now
+) {
+    if (used == nullptr || bits == nullptr || first_ms == nullptr || count <= 0) return -1;
+    int best = -1;
+    uint32_t best_age = 0;
+    for (int i = 0; i < count; i++) {
+        if (!used[i] || bits[i] != 0) continue;
+        uint32_t age = now - first_ms[i];
+        if (best < 0 || age > best_age) {
+            best = i;
+            best_age = age;
+        }
+    }
+    return best;
 }
 
 bool extract_ssid(const uint8_t *ies, size_t ie_len, char *ssid, size_t ssid_cap, uint8_t *out_len) {
@@ -408,7 +470,9 @@ int format_session_header(char *out, size_t cap, const LogIdentity &id) {
         "# drops counts frames the queue could not accept. Those frames were not scored.\n"
         "# caps: SSID hashes 128 per second, BSSID table 24, probe names 8 per BSSID, "
         "BLE addresses 24 per second, HID baseline 24, trackers 16, checkpoints 8, "
-        "file 262144 bytes. Counts stop at the cap and the detail says so.\n",
+        "file 262144 bytes. SSID hashes stop at the cap. A full tracker table replaces the oldest "
+        "slot that has no checkpoint mark; a marked tracker is kept. The HID table replaces its oldest "
+        "slot. BLE spam severity needs addresses heard once; repeating addresses are busy air.\n",
         board,
         firmware,
         git

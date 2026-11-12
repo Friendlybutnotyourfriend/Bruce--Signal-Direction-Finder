@@ -2,7 +2,8 @@
 // Sentinel: 2.4 GHz defensive detection. It listens and logs patterns.
 // It does not transmit deauth, spam, exploits, or jamming.
 //
-// Wi-Fi promiscuous and NimBLE callbacks only copy a small note into a queue.
+// Wi-Fi promiscuous and NimBLE callbacks only enqueue a small note. The Wi-Fi
+// callback parses SSID and RSN itself so a long beacon is not cut at 80 bytes.
 // A worker task owns the tables and the score. The UI task draws and writes the
 // SD log, because on many boards the display and the card share one SPI bus.
 
@@ -61,10 +62,12 @@ struct WifiNote {
     int8_t rssi;
     uint8_t channel;
     uint8_t has_fixed;
+    uint8_t has_ssid;
+    uint8_t ssid_len;
     uint8_t ie_truncated;
+    uint8_t security;
     uint16_t capability;
-    uint8_t ie_len;
-    uint8_t ie[80];
+    char ssid[33];
 };
 
 struct BleNote {
@@ -112,6 +115,7 @@ struct BeaconHit {
 struct SpamAddr {
     uint8_t addr[6];
     uint8_t mask;
+    uint8_t hits;
 };
 
 struct HidSlot {
@@ -119,6 +123,7 @@ struct HidSlot {
     uint8_t addr[6];
     bool baseline;
     bool counted;
+    uint32_t first_ms;
 };
 
 struct TrackerSlot {
@@ -502,10 +507,12 @@ void handle_wifi(const WifiNote &note) {
     }
     if (!note.has_fixed) return;
     char ssid[33];
-    uint8_t ssid_len = 0;
-    bool have_ssid = sentinel::extract_ssid(note.ie, note.ie_len, ssid, sizeof(ssid), &ssid_len);
-    sentinel::WifiSecurity sec =
-        sentinel::classify_wifi_security(note.capability, note.ie, note.ie_len, note.ie_truncated != 0);
+    uint8_t ssid_len = note.ssid_len;
+    bool have_ssid = note.has_ssid != 0;
+    if (ssid_len > 32) ssid_len = 32;
+    memcpy(ssid, note.ssid, ssid_len);
+    ssid[ssid_len] = '\0';
+    sentinel::WifiSecurity sec = (sentinel::WifiSecurity)note.security;
     bool known = sec != sentinel::WifiSecurity::Unknown;
     if (note.subtype == 0x08) {
         slot->saw_beacon = true;
@@ -533,31 +540,72 @@ void handle_wifi(const WifiNote &note) {
 }
 
 void note_spam(const uint8_t *addr, uint8_t mask) {
+    int found = -1;
+    for (uint8_t i = 0; i < g_spam_n; i++) {
+        if (!mac_eq(g_spam[i].addr, addr)) continue;
+        found = (int)i;
+        break;
+    }
+    if (found >= 0) {
+        if (g_spam[found].hits < 255) g_spam[found].hits++;
+    } else if (g_spam_n < kSpamCap) {
+        memcpy(g_spam[g_spam_n].addr, addr, 6);
+        g_spam[g_spam_n].mask = 0;
+        g_spam[g_spam_n].hits = 1;
+        found = (int)g_spam_n;
+        g_spam_n++;
+    } else {
+        return;
+    }
     for (int b = 0; b < 4; b++) {
         uint8_t bit = kFamilyBit[b];
         if ((mask & bit) == 0) continue;
         if (g_spam_ads[b] < 65535) g_spam_ads[b]++;
-        int found = -1;
-        for (uint8_t i = 0; i < g_spam_n; i++) {
-            if (!mac_eq(g_spam[i].addr, addr)) continue;
-            found = (int)i;
-            break;
-        }
-        if (found >= 0) {
-            if ((g_spam[found].mask & bit) != 0) continue;
-            g_spam[found].mask = (uint8_t)(g_spam[found].mask | bit);
-        } else if (g_spam_n < kSpamCap) {
-            memcpy(g_spam[g_spam_n].addr, addr, 6);
-            g_spam[g_spam_n].mask = bit;
-            g_spam_n++;
-        } else {
-            continue;
-        }
+        if ((g_spam[found].mask & bit) != 0) continue;
+        g_spam[found].mask = (uint8_t)(g_spam[found].mask | bit);
         if (g_spam_unique[b] < 255) g_spam_unique[b]++;
     }
 }
 
+int hid_evict_slot(uint32_t now) {
+    uint8_t used[kHidCap];
+    uint8_t bits[kHidCap];
+    uint32_t first_ms[kHidCap];
+    for (int i = 0; i < kHidCap; i++) {
+        used[i] = g_hid[i].used ? 1 : 0;
+        bits[i] = 0;
+        first_ms[i] = g_hid[i].first_ms;
+    }
+    return sentinel::oldest_unmarked_slot(used, bits, first_ms, kHidCap, now);
+}
+
+int tracker_evict_slot(uint32_t now) {
+    uint8_t used[kTrackerCap];
+    uint8_t bits[kTrackerCap];
+    uint32_t first_ms[kTrackerCap];
+    for (int i = 0; i < kTrackerCap; i++) {
+        used[i] = g_track[i].used ? 1 : 0;
+        bits[i] = g_track[i].bits;
+        first_ms[i] = g_track[i].first_ms;
+    }
+    return sentinel::oldest_unmarked_slot(used, bits, first_ms, kTrackerCap, now);
+}
+
+void fill_hid_slot(int slot, const uint8_t *addr, uint32_t now) {
+    memset(&g_hid[slot], 0, sizeof(g_hid[slot]));
+    g_hid[slot].used = true;
+    memcpy(g_hid[slot].addr, addr, 6);
+    g_hid[slot].first_ms = now;
+    g_hid[slot].baseline = !g_baseline_done;
+    g_hid[slot].counted = false;
+    if (g_baseline_done) {
+        g_hid[slot].counted = true;
+        if (g_hid_new < 255) g_hid_new++;
+    }
+}
+
 void note_hid(const uint8_t *addr) {
+    uint32_t now = millis();
     for (int i = 0; i < kHidCap; i++) {
         if (!g_hid[i].used || !mac_eq(g_hid[i].addr, addr)) continue;
         if (g_hid[i].baseline || g_hid[i].counted) return;
@@ -565,21 +613,31 @@ void note_hid(const uint8_t *addr) {
         if (g_hid_new < 255) g_hid_new++;
         return;
     }
-    if (g_hid_full) return;
     for (int i = 0; i < kHidCap; i++) {
         if (g_hid[i].used) continue;
-        g_hid[i].used = true;
-        memcpy(g_hid[i].addr, addr, 6);
-        g_hid[i].baseline = !g_baseline_done;
-        g_hid[i].counted = false;
-        if (g_baseline_done) {
-            g_hid[i].counted = true;
-            if (g_hid_new < 255) g_hid_new++;
-        }
+        fill_hid_slot(i, addr, now);
+        g_hid_full = false;
         return;
     }
-    g_hid_full = true;
-    g_live.table_full = true;
+    int slot = hid_evict_slot(now);
+    if (slot < 0) {
+        g_hid_full = true;
+        g_live.table_full = true;
+        return;
+    }
+    fill_hid_slot(slot, addr, now);
+    g_hid_full = false;
+}
+
+void fill_tracker_slot(int slot, const uint8_t *addr, sentinel::TrackerFamily family, uint32_t now) {
+    memset(&g_track[slot], 0, sizeof(g_track[slot]));
+    g_track[slot].used = true;
+    memcpy(g_track[slot].addr, addr, 6);
+    g_track[slot].family = family;
+    g_track[slot].first_ms = now;
+    g_track[slot].last_ms = now;
+    g_track[slot].last_sev = sentinel::Severity::None;
+    if (g_checkpoint > 0) g_track[slot].bits = (uint8_t)(1u << (g_checkpoint - 1));
 }
 
 void note_tracker(const uint8_t *addr, sentinel::TrackerFamily family) {
@@ -591,21 +649,20 @@ void note_tracker(const uint8_t *addr, sentinel::TrackerFamily family) {
         if (g_checkpoint > 0) g_track[i].bits = (uint8_t)(g_track[i].bits | (1u << (g_checkpoint - 1)));
         return;
     }
-    if (g_track_full) return;
     for (int i = 0; i < kTrackerCap; i++) {
         if (g_track[i].used) continue;
-        memset(&g_track[i], 0, sizeof(g_track[i]));
-        g_track[i].used = true;
-        memcpy(g_track[i].addr, addr, 6);
-        g_track[i].family = family;
-        g_track[i].first_ms = now;
-        g_track[i].last_ms = now;
-        g_track[i].last_sev = sentinel::Severity::None;
-        if (g_checkpoint > 0) g_track[i].bits = (uint8_t)(1u << (g_checkpoint - 1));
+        fill_tracker_slot(i, addr, family, now);
+        g_track_full = false;
         return;
     }
-    g_track_full = true;
-    g_live.table_full = true;
+    int slot = tracker_evict_slot(now);
+    if (slot < 0) {
+        g_track_full = true;
+        g_live.table_full = true;
+        return;
+    }
+    fill_tracker_slot(slot, addr, family, now);
+    g_track_full = false;
 }
 
 void handle_ble(const BleNote &note) {
@@ -762,15 +819,21 @@ void score_tick(uint32_t now) {
     for (int b = 0; b < 4; b++) {
         uint32_t ads = (uint32_t)g_spam_ads[b] * 1000u / elapsed;
         if (ads > 65535) ads = 65535;
-        sentinel::Severity sev = sentinel::score_ble_spam((uint16_t)ads, g_spam_unique[b]);
+        uint8_t once = 0;
+        uint8_t bit = kFamilyBit[b];
+        for (uint8_t i = 0; i < g_spam_n; i++) {
+            if ((g_spam[i].mask & bit) != 0 && g_spam[i].hits == 1) once++;
+        }
+        sentinel::Severity sev = sentinel::score_ble_spam((uint16_t)ads, g_spam_unique[b], once);
         char detail[96];
         snprintf(
             detail,
             sizeof(detail),
-            "family=%s ads=%lu/s addrs=%u",
+            "family=%s ads=%lu/s addrs=%u once=%u",
             sentinel::ble_family_name(kFamilyBit[b]),
             (unsigned long)ads,
-            g_spam_unique[b]
+            g_spam_unique[b],
+            once
         );
         raise_finding(sentinel::Kind::BleSpam, sev, (uint32_t)kFamilyBit[b], detail);
     }
@@ -778,7 +841,7 @@ void score_tick(uint32_t now) {
     memset(g_spam_ads, 0, sizeof(g_spam_ads));
     memset(g_spam_unique, 0, sizeof(g_spam_unique));
 
-    if (g_baseline_done && !g_hid_full) {
+    if (g_baseline_done) {
         sentinel::Severity sev = sentinel::score_new_hid(g_hid_new);
         char detail[96];
         snprintf(detail, sizeof(detail), "new_addrs=%u baseline_s=20", g_hid_new);
@@ -879,7 +942,9 @@ void wifi_rx(void *buf, wifi_promiscuous_pkt_type_t type) {
     if (type != WIFI_PKT_MGMT) return;
     const wifi_promiscuous_pkt_t *pkt = (const wifi_promiscuous_pkt_t *)buf;
     uint16_t sig = pkt->rx_ctrl.sig_len;
-    if (sig < 24) return;
+    size_t frame_len = sentinel::mgmt_len_without_fcs(sig);
+    if (frame_len < 24) return;
+    if (frame_len > 512) frame_len = 512;
     const uint8_t *frame = pkt->payload;
     uint16_t fc = (uint16_t)frame[0] | ((uint16_t)frame[1] << 8);
     uint8_t ftype = (uint8_t)((fc >> 2) & 0x3);
@@ -898,16 +963,15 @@ void wifi_rx(void *buf, wifi_promiscuous_pkt_type_t type) {
     uint8_t channel = (uint8_t)pkt->rx_ctrl.channel;
     if (channel < 1 || channel > 14) channel = g_ui_channel;
     note.channel = channel;
-    if ((beacon || probe) && sig >= 36) {
+    if ((beacon || probe) && frame_len >= 36) {
         note.has_fixed = 1;
         note.capability = (uint16_t)frame[34] | ((uint16_t)frame[35] << 8);
-        uint16_t avail = (uint16_t)(sig - 36);
-        if (avail > sizeof(note.ie)) {
-            note.ie_truncated = 1;
-            avail = sizeof(note.ie);
-        }
-        note.ie_len = (uint8_t)avail;
-        memcpy(note.ie, frame + 36, avail);
+        sentinel::WifiTagParse parsed = sentinel::parse_mgmt_tags(frame, frame_len);
+        note.has_ssid = parsed.has_ssid ? 1 : 0;
+        note.ssid_len = parsed.ssid_len;
+        memcpy(note.ssid, parsed.ssid, sizeof(note.ssid));
+        note.security = (uint8_t)parsed.security;
+        note.ie_truncated = parsed.truncated ? 1 : 0;
     }
     if (xQueueSend(g_wifi_q, &note, 0) != pdTRUE) g_wifi_drops = g_wifi_drops + 1;
 }
@@ -1033,8 +1097,8 @@ void open_log(WatchMode mode) {
     id.firmware = BRUCE_VERSION;
     id.git = GIT_COMMIT_HASH;
     // Stack, not BSS. A static 2KB buffer pushed the no-PSRAM ESP32 (E32R28T)
-    // over its DRAM limit. The formatted header is under 1KB.
-    char header[1200];
+    // over its DRAM limit. The formatted header is about 1.2KB.
+    char header[1600];
     int n = sentinel::format_session_header(header, sizeof(header), id);
     if (n > 0) write_log_bytes(header, (size_t)n);
     char wall[24];

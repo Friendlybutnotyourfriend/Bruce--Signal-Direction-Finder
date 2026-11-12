@@ -60,6 +60,9 @@ struct Thresholds {
     uint8_t ble_addrs_low = 3;
     uint8_t ble_addrs_med = 5;
     uint8_t ble_addrs_high = 8;
+    // Same idea as beacon_once_pct: a flood is addresses heard once.
+    // Repeating addresses are a crowd, not a spam burst.
+    uint8_t ble_once_pct = 70;
 
     uint8_t hid_new_low = 1;
     uint8_t hid_new_med = 4;
@@ -97,7 +100,10 @@ Severity score_deauth(uint16_t frames_per_second, bool channel_locked, Threshold
 Severity score_beacon_flood(BeaconStats stats, Thresholds t = Thresholds());
 Severity score_evil_twin(uint8_t bssid_count, bool known_security_differs, bool open_versus_encrypted);
 Severity score_karma(KarmaInput in, Thresholds t = Thresholds());
-Severity score_ble_spam(uint16_t ads_per_second, uint8_t unique_addrs, Thresholds t = Thresholds());
+// once_only is how many of unique_addrs were heard a single time in the window.
+Severity score_ble_spam(
+    uint16_t ads_per_second, uint8_t unique_addrs, uint8_t once_only, Thresholds t = Thresholds()
+);
 Severity score_new_hid(uint8_t new_hid_addresses, Thresholds t = Thresholds());
 Severity score_tracker(uint8_t user_checkpoints, uint32_t duration_ms, Thresholds t = Thresholds());
 
@@ -116,6 +122,29 @@ classify_wifi_security(uint16_t capability, const uint8_t *ies, size_t ie_len, b
 
 // True when an SSID element is present, including a hidden (empty) SSID.
 bool extract_ssid(const uint8_t *ies, size_t ie_len, char *ssid, size_t ssid_cap, uint8_t *out_len);
+
+// Promiscuous sig_len counts the 4-byte frame check sequence. Tag walking must
+// not treat those bytes as an information element.
+size_t mgmt_len_without_fcs(uint16_t sig_len);
+
+struct WifiTagParse {
+    bool has_ssid;
+    uint8_t ssid_len;
+    char ssid[33];
+    WifiSecurity security;
+    bool truncated;
+};
+
+// frame_len is the management frame without the FCS. SSID and RSN are read
+// from the whole tag list, not from a fixed prefix.
+WifiTagParse parse_mgmt_tags(const uint8_t *frame, size_t frame_len);
+
+// Among used slots whose checkpoint bits are 0, the one with the greatest
+// age (now - first_ms). Returns -1 when every used slot is marked or none are used.
+// HID slots pass bits of all zeros, so the oldest HID slot is eligible.
+int oldest_unmarked_slot(
+    const uint8_t *used, const uint8_t *bits, const uint32_t *first_ms, int count, uint32_t now
+);
 
 // Classify the first advertising-data bytes. Does not interpret identity fields.
 BleMarks classify_ble_ad(const uint8_t *ad, size_t len);
