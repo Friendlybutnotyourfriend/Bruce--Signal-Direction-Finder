@@ -4,11 +4,13 @@ Sentinel is a 2.4 GHz listener for awareness and training. It records patterns. 
 
 Open it from **Wi-Fi → Sentinel** or **BLE → Sentinel**. Channel Analyzer (airtime) and Jam Detect (the short-dwell deauth alarm from Bruce 1.16.1, called Rogue Detect in the release notes) stay available. Sentinel adds the patterns below and links those two tools from its own menu.
 
-This build is based on the official Bruce release tag **1.16.1**. It is not built from later `main`.
+This build is based on the official Bruce release tag **1.16.1**. It is not built from later `main`. The same image also carries the fork's earlier lab functions: **DF** (BLE Hunter, BLE Sniffer, BLE Sessions), **RF → Antenna ID**, **RF → Radio Control**, **RF → RF Black Box / Finder**, and **NRF24 → Radio Control**. Sentinel itself stays listen-only. Those other menus are the existing lab tools, including their previous transmit profiles and jammer entries.
 
 ## What it watches
 
-Wi-Fi, only if the radio accepts monitor mode. The ESP32 hears one channel at a time. The default hops channels 1–11. UP/DOWN locks a channel; SEL returns to hopping. Channels 12–13 and 5 GHz are not swept. While hopping, a count is a lower bound.
+Wi-Fi, only if the radio accepts monitor mode. The radio hears one channel at a time. The default hops channels 1–11. UP/DOWN locks a channel; SEL returns to hopping. Channels 12–13 are not swept. While hopping, a count is a lower bound.
+
+ESP32-C5 (NM-CYD-C5) can put the radio in monitor mode on 5 GHz, and Bruce's existing sniffer already lists those channels. Sentinel does not sweep them in this build. On that board the watch says so. A quiet 2.4 GHz Sentinel screen does not mean the 5 GHz band was checked.
 
 - **Deauth / disassoc rate** per BSSID, over a one-second window of frames actually received.
 - **Beacon flood pattern:** many network names heard once in that second. Names that keep repeating are labelled busy air, not a flood.
@@ -84,6 +86,20 @@ g++ -std=c++11 -Wall -Wextra -Werror -I src/modules/sentinel \
   -o /tmp/sentinel_score_test && /tmp/sentinel_score_test
 ```
 
-Verified firmware target: `m5stack-cardputer` (`pio run -e m5stack-cardputer`), an official 1.16.1 board and not a lite build. Sentinel is omitted from `LITE_VERSION` builds, same as Channel Analyzer and Jam Detect.
+Verified firmware targets, both official 1.16.1 envs and not lite builds:
+
+- `pio run -e m5stack-cardputer` — M5Stack Cardputer. This env is what the Cardputer ADV uses. There is no separate ADV env. At boot it probes the TCA8418 keyboard on Wire1 SDA 8 / SCL 9 and, when that controller is present, uses the ADV keyboard and ES8311 path. The original Cardputer is not a separate target here.
+- `pio run -e nm-cyd-c5` — NM-CYD-C5 (ESP32-C5).
+
+Sentinel is omitted from `LITE_VERSION` builds, same as Channel Analyzer and Jam Detect.
+
+Flash the merged images the build writes at the project root, at offset `0x0`:
+
+```sh
+pio run -e m5stack-cardputer -t upload
+pio run -e nm-cyd-c5 -t upload
+```
+
+Or, with the image already built: `esptool --chip esp32s3 write-flash 0x0 Bruce-m5stack-cardputer.bin` and `esptool --chip esp32c5 write-flash 0x0 Bruce-nm-cyd-c5.bin`. The C5 bootloader sits at `0x2000` inside that merged file.
 
 `fastled/FastLED` is pinned to 3.10.3 in `platformio.ini`. The original `^3.10.3` range now installs 3.10.9, and 3.10.5 and later use the name `FP`, which Bruce's `-DFP` font-size macro rewrites, so those releases do not compile. 3.10.3 is the newest published version in the original range that does not do that. No Bruce source commit after tag 1.16.1 is included.

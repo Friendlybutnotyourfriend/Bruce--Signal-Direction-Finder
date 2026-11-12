@@ -654,7 +654,7 @@ bool isAudioFile(const String &filepath) {
            filepath.endsWith(".aac") || filepath.endsWith(".flac");
 }
 
-void playTone(unsigned int frequency, unsigned long duration, short waveType) {
+void playTone(unsigned int frequency, unsigned long duration, short waveType, bool allowKeyCancel) {
     if (!bruceConfig.soundEnabled) return;
 
     _setup_codec_speaker(true);
@@ -697,6 +697,15 @@ void playTone(unsigned int frequency, unsigned long duration, short waveType) {
             v *= volumeScale;
             return v;
         });
+    } else if (waveType == 2) {
+        // Short background cues use a millisecond envelope. Output gain already
+        // applies the user's volume.
+        const float seconds = duration / 1000.0f;
+        file->addAudioGenerators([hz, seconds](const float time) {
+            const float edge = fmaxf(0.0f, fminf(time, seconds - time));
+            const float envelope = fminf(1.0f, edge / 0.005f);
+            return sinf(TWO_PI * hz * time) * 0.2f * envelope;
+        });
     }
 
     AudioGeneratorWAV *wav = new AudioGeneratorWAV();
@@ -717,7 +726,7 @@ void playTone(unsigned int frequency, unsigned long duration, short waveType) {
     }
 
     while (wav->isRunning()) {
-        if (!wav->loop() || check(AnyKeyPress)) { wav->stop(); }
+        if (!wav->loop() || (allowKeyCancel && check(AnyKeyPress))) { wav->stop(); }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 

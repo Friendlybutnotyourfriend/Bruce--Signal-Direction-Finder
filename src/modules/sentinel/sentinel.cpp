@@ -1284,13 +1284,16 @@ void draw_watch(WatchMode mode, bool wifi_on, bool ble_on, bool switching) {
     }
 
     static const char *hints[] = {
-        "2.4 GHz only. 5 GHz is not heard.",
+        "2.4 GHz only. 5 GHz is not swept.",
         "Hopping under-counts. Lock a channel.",
         "Wi-Fi and BLE share this radio.",
         "A finding is a pattern, not an ID.",
         "Queue drops are counted.",
+#if defined(CONFIG_IDF_TARGET_ESP32C5)
+        "C5 monitor mode can hear 5 GHz. This watch stays on 2.4.",
+#endif
     };
-    const char *hint = hints[(millis() / 4000) % 5];
+    const char *hint = hints[(millis() / 4000) % (sizeof(hints) / sizeof(hints[0]))];
     if (live.table_full) hint = "A table is full. Extra devices unscored.";
     if (!wifi_on && !ble_on) hint = "This radio is not in a listen mode.";
     char hint_buf[48];

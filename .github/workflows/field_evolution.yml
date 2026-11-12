@@ -1,0 +1,129 @@
+name: Bruce Field Evolution
+
+on:
+  push:
+    branches:
+      - agent/ble-field-evolution
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: field-evolution-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test shared association and antenna core with sanitizers
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -g tests/recon_core_test.cpp -o /tmp/recon-test
+          /tmp/recon-test
+          g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
+          RECON_ENGINE=/tmp/recon-replay python -m unittest discover -s tests -p 'test_*.py'
+  extended-scan-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install platformio
+      - name: Compile full extended-advertising host configuration
+        run: platformio run -d lab/extended_scan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Extended-scan-probe-ELF-not-for-Launcher
+          path: lab/extended_scan/.pio/build/extended-scan-probe/firmware.elf
+          retention-days: 14
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: LilyGO T-Embed CC1101 Plus
+            env: lilygo-t-embed-cc1101
+            chip: esp32s3
+            artifact: Launcher-T-Embed-CC1101-Plus.bin
+
+    steps:
+      - name: Checkout Phase 1-2 branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+          python -m pip install --upgrade pip
+          pip install platformio requests esptool intelhex
+
+      - name: Record committed build input
+        run: |
+          git rev-parse HEAD
+          git diff --exit-code
+          grep -F 'BRUCE_VERSION' platformio.ini
+
+      - name: Inspect controller capabilities
+        run: |
+          platformio pkg install -e "${{ matrix.env }}"
+          find ~/.platformio/packages -name sdkconfig.h -path '*esp32s3*' -exec grep -EH 'CONFIG_BT_(BLE_50|NIMBLE_EXT_ADV|BLE_EXT_ADV|CTRL_BLE_MAX_ACT)' {} + || true
+      - name: Build firmware
+        run: |
+          set -o pipefail
+          platformio run -e "${{ matrix.env }}" 2>&1 | tee "build-${{ matrix.env }}.log"
+
+      - name: Check tracked build inputs remain unchanged
+        run: git diff --exit-code
+
+      - name: Build Launcher-only image
+        run: |
+          test -f ".pio/build/${{ matrix.env }}/partitions.bin"
+          test -f ".pio/build/${{ matrix.env }}/firmware.bin"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          env = "${{ matrix.env }}"
+          out = Path("${{ matrix.artifact }}")
+          partitions = Path(f".pio/build/{env}/partitions.bin").read_bytes()
+          app = Path(f".pio/build/{env}/firmware.bin").read_bytes()
+          app_offset = 0x10000
+          partition_offset = 0x8000
+          image = bytearray(app_offset + len(app))
+          image[partition_offset:partition_offset + len(partitions)] = partitions
+          image[app_offset:app_offset + len(app)] = app
+          out.write_bytes(image)
+          print(f"Launcher-only image: {out} ({len(image)} bytes)")
+          print(f"Partition table: {len(partitions)} bytes @ 0x{partition_offset:X}")
+          print(f"Application: {len(app)} bytes @ 0x{app_offset:X}")
+          print("Bootloader included: NO")
+          print(f"SHA256: {hashlib.sha256(image).hexdigest()}")
+          PY
+
+      - name: Upload Launcher-only image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-Evolution-${{ matrix.env }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-Evolution-log-${{ matrix.env }}
+          path: build-${{ matrix.env }}.log
+          if-no-files-found: ignore
+          retention-days: 14

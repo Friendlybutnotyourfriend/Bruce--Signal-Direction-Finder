@@ -50,8 +50,17 @@ int getBattery() {
     static bool adcInitialized = false;
     if (!adcInitialized) {
         pinMode(ANALOG_BAT_PIN, INPUT);
+#if defined(FENRIR_EBYTE)
+        analogSetPinAttenuation(ANALOG_BAT_PIN, ADC_11db);
+#endif
         adcInitialized = true;
     }
+#if defined(FENRIR_EBYTE)
+    uint32_t total = 0;
+    for (int i = 0; i < 16; ++i) total += analogReadMilliVolts(ANALOG_BAT_PIN);
+    const int voltage = (total / 16) * ANALOG_BAT_MULTIPLIER;
+    return constrain((voltage - 3300) * 100 / 900, 1, 100);
+#endif
     uint32_t adcReading = analogReadMilliVolts(ANALOG_BAT_PIN);
     float actualVoltage = (float)adcReading * ANALOG_BAT_MULTIPLIER;
     const float MIN_VOLTAGE = 3300.0f;
