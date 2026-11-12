@@ -321,7 +321,8 @@ static void es8311_write_reg(uint8_t reg, uint8_t val) {
     Wire.beginTransmission(ES8311_ADDR);
     Wire.write(reg);
     Wire.write(val);
-    Wire.endTransmission();
+    const uint8_t error = Wire.endTransmission();
+    if (error) Serial.printf("ES8311 write failed: reg=0x%02X I2C error=%u\n", reg, error);
 }
 
 static uint8_t es8311_read_reg(uint8_t reg) {
