@@ -84,7 +84,7 @@ void drawHeader(const char *subtitle) {
     tft.fillScreen(bruceConfig.bgColor);
     tft.setTextSize(1);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-#if defined(E32R28T_HALEHOUND)
+#if defined(E32R28T)
     tft.drawString("HUGINN ANTENNA ID", 4, 3);
 #elif defined(FENRIR_EBYTE)
     tft.drawString("FENRIR ANTENNA ID", 4, 3);
