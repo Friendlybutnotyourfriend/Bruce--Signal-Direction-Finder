@@ -66,6 +66,7 @@ Also, [read our FAQ](https://wiki.bruce.computer/faq/)
 - [x] [TelNet](https://wiki.bruce.computer/features/wifi/#telnet)
 - [x] [SSH](https://wiki.bruce.computer/features/wifi/#ssh)
 - [x] [RAW Sniffer](https://wiki.bruce.computer/features/wifi/#raw-sniffer)
+- [x] Sentinel (detection and logging only, see docs/sentinel.md)
 - [x] [TCP Client](https://wiki.bruce.computer/features/wifi/#client-tcp)
 - [x] [TCP Listener](https://wiki.bruce.computer/features/wifi/#listen-tcp)
 - [x] [Evil Portal](https://wiki.bruce.computer/features/wifi/#evil-portal)
@@ -86,6 +87,7 @@ Also, [read our FAQ](https://wiki.bruce.computer/faq/)
   <summary><h2>BLE</h2></summary>
 
 - [x] [BLE Scan](https://wiki.bruce.computer/features/ble/#ble-scan)
+- [x] Sentinel (detection and logging only, see docs/sentinel.md)
 - [x] Bad BLE - Run Ducky scripts, similar to [BadUsb](https://wiki.bruce.computer/features/ble/#badble)
 - [x] BLE Keyboard - Cardputer and T-Deck Only
 - [x] iOS Spam
