@@ -990,7 +990,9 @@ void open_log(WatchMode mode) {
 #endif
     id.firmware = BRUCE_VERSION;
     id.git = GIT_COMMIT_HASH;
-    static char header[2048];
+    // Stack, not BSS. A static 2KB buffer pushed the no-PSRAM ESP32 (E32R28T)
+    // over its DRAM limit. The formatted header is under 1KB.
+    char header[1200];
     int n = sentinel::format_session_header(header, sizeof(header), id);
     if (n > 0) write_log_bytes(header, (size_t)n);
     char wall[24];
