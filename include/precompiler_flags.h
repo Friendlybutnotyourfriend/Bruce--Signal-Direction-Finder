@@ -153,10 +153,16 @@
     #define RF_TX_PINS GPIO_PIN_LIST
     #define RF_RX_PINS GPIO_PIN_LIST
 #endif
-#if !defined(IR_TX_PINS) || !defined(IR_RX_PINS) || !defined(RF_TX_PINS) || !defined(RF_RX_PINS)
+#ifndef IR_TX_PINS
     #define IR_TX_PINS GPIO_PIN_LIST
+#endif
+#ifndef IR_RX_PINS
     #define IR_RX_PINS GPIO_PIN_LIST
+#endif
+#ifndef RF_TX_PINS
     #define RF_TX_PINS GPIO_PIN_LIST
+#endif
+#ifndef RF_RX_PINS
     #define RF_RX_PINS GPIO_PIN_LIST
 #endif
 

@@ -1,4 +1,6 @@
 #include "rf_utils.h"
+#include "core/radio_pin_validation.h"
+#include "modules/radio_control/radio_control.h"
 #include "core/bus_HAL.h"
 #include "core/sd_functions.h"
 #include "core/settings.h"
@@ -7,6 +9,10 @@
 const uint64_t CRC64_ECMA_POLY = 0x42F0E1EBA9EA3693; // Polynomial for CRC-64-ECMA
 const uint64_t CRC64_ECMA_INIT = 0xFFFFFFFFFFFFFFFF; // Initial value
 
+#if defined(FENRIR_EBYTE)
+const int range_limits[4][2] = {{27, 45}, {27, 45}, {27, 45}, {27, 45}};
+const char *subghz_frequency_ranges[] = {"E07 presets", "E07 presets", "E07 presets", "E07 presets"};
+#else
 const int range_limits[4][2] = {
     {0,  23}, // 300-348 MHz
     {24, 47}, // 387-464 MHz
@@ -14,6 +20,7 @@ const int range_limits[4][2] = {
     {0,  56}  // All ranges
 };
 const char *subghz_frequency_ranges[] = {"300-348 MHz", "387-464 MHz", "779-928 MHz", "All ranges"};
+#endif
 
 String rf_subghz_header(float frequencyMHz) {
     return "Filetype: Bruce SubGhz File\nVersion: 1\n" + String("Frequency: ") +
@@ -235,8 +242,23 @@ void RfCodes::keeloq_step(uint16_t step) {
 // split_string + KeeloqKeystore moved to protocols/rf_keeloq.cpp.
 
 bool initRfModule(String mode, float frequency) {
+#if defined(CBD_EXTERNAL_PIN_VALIDATION)
+    if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) {
+        const auto &p = bruceConfigPins.CC1101_bus;
+        if (!radioPins::distinct(p.sck, p.miso, p.mosi, p.cs, p.io0)) {
+            displayError("Set separate CC1101 GDO0 pin", true);
+            return false;
+        }
+    }
+#endif
     // use default frequency if no one is passed
     if (!frequency) frequency = bruceConfigPins.rfFreq;
+#if defined(FENRIR_EBYTE)
+    if (frequency < 425.0f || frequency > 450.5f) {
+        Serial.println("[Fenrir] valid E07 range 425-450.5 MHz");
+        return false;
+    }
+#endif
 
     if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) { // CC1101 in use
 #ifdef CAP_CC1101_POWER_EN
@@ -304,6 +326,7 @@ bool initRfModule(String mode, float frequency) {
         // setting 0 (00), in RX.
         //.  3 = Asynchronous serial mode, Data in on GDO0 and data out on either of the GDOx pins.
         ELECHOUSE_cc1101.setPktFormat(3);
+        RadioControl::applyCcModulationAndRate();
         setMHZ(frequency);
         cc1101_mode_hint = 0;
         Serial.println("cc1101 setMHZ(frequency);");
@@ -314,10 +337,16 @@ bool initRfModule(String mode, float frequency) {
 
         /* MEMO: cannot change other params after this is executed */
         if (mode == "tx") {
+#if defined(FENRIR_EBYTE)
+            digitalWrite(FENRIR_E07_RX_EN, LOW);
+            delayMicroseconds(50);
+            digitalWrite(FENRIR_E07_TX_EN, HIGH);
+#endif
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, LOW);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, HIGH);
             pinMode(bruceConfigPins.CC1101_bus.io0, OUTPUT);
-            ELECHOUSE_cc1101.setPA(12); // set TxPower. The following settings are possible depending
+            ELECHOUSE_cc1101.setPA(12); // existing Bruce default unless a Radio Control profile is on
+            RadioControl::applyCcTxPower();
             Serial.println("cc1101 setPA();");
             ELECHOUSE_cc1101.SetTx();
             Serial.println("cc1101 SetTx();");
@@ -325,6 +354,12 @@ bool initRfModule(String mode, float frequency) {
             ioExpander.turnPinOnOff(IO_EXP_CC_RX, HIGH);
             ioExpander.turnPinOnOff(IO_EXP_CC_TX, LOW);
             pinMode(bruceConfigPins.CC1101_bus.io0, INPUT);
+#if defined(FENRIR_EBYTE)
+            // The E07 antenna receive amplifier is independent of the CC1101 registers.
+            digitalWrite(FENRIR_E07_TX_EN, LOW);
+            delayMicroseconds(50);
+            digitalWrite(FENRIR_E07_RX_EN, HIGH);
+#endif
             ELECHOUSE_cc1101.SetRx();
             Serial.println("cc1101 SetRx();");
         }
@@ -357,6 +392,10 @@ bool initRfModule(String mode, float frequency) {
 }
 
 void deinitRfModule() {
+#if defined(FENRIR_EBYTE)
+    digitalWrite(FENRIR_E07_RX_EN, LOW);
+    digitalWrite(FENRIR_E07_TX_EN, LOW);
+#endif
     if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) {
         if (cc1101_spi_ready) {
             ELECHOUSE_cc1101.setSidle();
@@ -389,6 +428,12 @@ void initCC1101once(SPIClass *SSPI) {
 }
 
 void setMHZ(float frequency) {
+#if defined(FENRIR_EBYTE)
+    if (frequency < 425.0f || frequency > 450.5f) {
+        Serial.println("[Fenrir] blocked CC1101 tune outside E07 front-end range");
+        return;
+    }
+#endif
     if (frequency > 928 || frequency < 280) {
         frequency = 433.92;
         Serial.println("Frequency out of band");
@@ -457,8 +502,19 @@ void setMHZ(float frequency) {
         const bool isTxProfile = (targetMode == 1);
 
         if (preciseCalibration && previousMode != 0) ELECHOUSE_cc1101.setSidle();
+#if defined(FENRIR_EBYTE)
+        const uint8_t fenrirPrev = ELECHOUSE_cc1101.getMode();
+        if (!preciseCalibration) ELECHOUSE_cc1101.setSidle();
+#endif
 
         ELECHOUSE_cc1101.setMHZ(frequency);
+
+#if defined(FENRIR_EBYTE)
+        if (!preciseCalibration) {
+            if (fenrirPrev == 1) ELECHOUSE_cc1101.SetTx();
+            else if (fenrirPrev == 2) ELECHOUSE_cc1101.SetRx();
+        }
+#endif
 
         if (preciseCalibration) {
             cc1101ApplyPreciseCalibration(frequency, isTxProfile);

@@ -101,10 +101,10 @@ void _setup_gpio() {
     bruceConfigPins.PN532_bus = {(gpio_num_t)14, (gpio_num_t)2, (gpio_num_t)3, (gpio_num_t)21};
     // CC1101/NRF24/W5500 share the same expansion-pin SPI bus (sck=14, miso=2, mosi=3)
     bruceConfigPins.CC1101_bus = {
-        (gpio_num_t)14, (gpio_num_t)2, (gpio_num_t)3, (gpio_num_t)21, (gpio_num_t)2, GPIO_NUM_NC
+        (gpio_num_t)14, (gpio_num_t)2, (gpio_num_t)3, (gpio_num_t)21, GPIO_NUM_NC, GPIO_NUM_NC
     }; // sck,miso,mosi,cs,gdo0,gdo2
     bruceConfigPins.NRF24_bus = {
-        (gpio_num_t)14, (gpio_num_t)2, (gpio_num_t)3, (gpio_num_t)21, (gpio_num_t)3
+        (gpio_num_t)14, (gpio_num_t)2, (gpio_num_t)3, (gpio_num_t)21, GPIO_NUM_NC
     }; // sck,miso,mosi,cs(ss),ce
 #if !defined(LITE_VERSION)
     bruceConfigPins.W5500_bus = {
@@ -266,7 +266,8 @@ static void es8311_write_reg(uint8_t reg, uint8_t val) {
     Wire.beginTransmission(ES8311_ADDR);
     Wire.write(reg);
     Wire.write(val);
-    Wire.endTransmission();
+    const uint8_t error = Wire.endTransmission();
+    if (error) Serial.printf("ES8311 write failed: reg=0x%02X I2C error=%u\n", reg, error);
 }
 
 static uint8_t es8311_read_reg(uint8_t reg) {

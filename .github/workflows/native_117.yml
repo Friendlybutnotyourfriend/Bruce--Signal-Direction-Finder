@@ -1,0 +1,71 @@
+name: Native Bruce 1.17
+on:
+  push:
+    branches: [codex/bruce-1.17-native]
+  workflow_dispatch:
+env:
+  PYTHONDONTWRITEBYTECODE: 1
+permissions:
+  contents: read
+concurrency:
+  group: native-117-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@v4
+        id: pio-cache
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: native117-${{ runner.os }}-${{ hashFiles('platformio.ini', 'boards/**/*.ini') }}
+          restore-keys: native117-${{ runner.os }}-
+      - name: Host regressions
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror tests/sentinel_score_test.cpp src/modules/sentinel/sentinel_score.cpp -I src/modules/sentinel -o /tmp/sentinel
+          /tmp/sentinel
+          for test in rf_lab_core recon_core cbd_stability; do
+            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined tests/${test}_test.cpp -o /tmp/${test}
+            /tmp/${test}
+          done
+          g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
+          RECON_ENGINE=/tmp/recon-replay python -m unittest discover -s tests -p 'test_sessions.py'
+      - name: Build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc-multilib libc6-dev-i386
+          python -m pip install platformio==6.2.0
+      - name: CBD first
+        run: |
+          pio run -e ES3C28P
+          python scripts/package_native.py --env ES3C28P --output .pio/release
+      - name: Cardputer ADV second
+        run: |
+          pio run -e m5stack-cardputer
+          python scripts/package_native.py --env m5stack-cardputer --output .pio/release
+      - name: T-Embed CC1101 third
+        run: |
+          pio run -e lilygo-t-embed-cc1101
+          python scripts/package_native.py --env lilygo-t-embed-cc1101 --output .pio/release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Bruce-1.17-native-Launcher
+          path: .pio/release/*
+          if-no-files-found: warn
+      - uses: actions/cache/save@v4
+        if: always() && steps.pio-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.platformio
+            .pio/libdeps
+          key: ${{ steps.pio-cache.outputs.cache-primary-key }}
