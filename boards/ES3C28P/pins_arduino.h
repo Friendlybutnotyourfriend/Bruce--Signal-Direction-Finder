@@ -58,7 +58,9 @@ static const uint8_t MISO = SPI_MISO_PIN;
 // CC1101 Sub-GHz Radio (external module via expansion pins)
 // =============================================
 #define USE_CC1101_VIA_SPI
-#define CC1101_GDO0_PIN 2
+// Expand has only the four SPI wires. Configure a separate header GPIO
+// (for example UART IO43 when UART is unused) after wiring GDO0.
+#define CC1101_GDO0_PIN -1
 #define CC1101_SS_PIN 21
 #define CC1101_MOSI_PIN SPI_MOSI_PIN
 #define CC1101_SCK_PIN SPI_SCK_PIN
@@ -68,7 +70,7 @@ static const uint8_t MISO = SPI_MISO_PIN;
 // NRF24L01 2.4GHz Radio (external module via expansion pins)
 // =============================================
 #define USE_NRF24_VIA_SPI
-#define NRF24_CE_PIN 3
+#define NRF24_CE_PIN -1 // CE cannot share MOSI; configure a separate wired GPIO.
 #define NRF24_SS_PIN 21
 #define NRF24_MOSI_PIN SPI_MOSI_PIN
 #define NRF24_SCK_PIN SPI_SCK_PIN

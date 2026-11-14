@@ -91,7 +91,7 @@ int main() {
     EXPECT(score_beacon_flood(repeating_crowd) == Severity::Info);
 
     EXPECT(score_evil_twin(1, true, true) == Severity::None);
-    EXPECT(score_evil_twin(2, false, false) == Severity::Low);
+    EXPECT(score_evil_twin(2, false, false) == Severity::Info);
     EXPECT(score_evil_twin(3, true, false) == Severity::Medium);
     EXPECT(score_evil_twin(2, true, true) == Severity::High);
 

@@ -29,6 +29,9 @@ struct ReceiveSettings {
 // Session-only settings: never enable persistent TX overrides.
 bool validReceiveSettings(const ReceiveSettings &settings);
 bool applyReceiveSettings(const ReceiveSettings &settings);
+// Nominal base frequency from hardware registers (26 MHz crystal assumption),
+// not a calibrated measurement of the RF carrier.
+float programmedFrequencyMHz();
 const Profile &profile();
 void ccMenu();
 void nrfMenu();

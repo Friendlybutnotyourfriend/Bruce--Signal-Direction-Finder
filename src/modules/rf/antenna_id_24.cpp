@@ -85,7 +85,7 @@ void drawHeader(const char *subtitle) {
 }
 
 bool waitForStart() {
-    drawHeader("ESP32-S3 2.4 GHz survey");
+    drawHeader("ESP32 2.4 GHz survey");
     tft.setTextColor(TFT_LIGHTGREY, bruceConfig.bgColor);
     tft.drawString("Uses ESP32 WiFi/BLE antenna path", 4, 34);
     tft.drawString("T-Embed: attach to S3 U.FL path", 4, 47);
@@ -103,7 +103,7 @@ bool waitForStart() {
 }
 
 void drawProgress(const char *radio, uint8_t pass, const char *detail) {
-    drawHeader("ESP32-S3 2.4 GHz survey");
+    drawHeader("ESP32 2.4 GHz survey");
     tft.setTextColor(TFT_WHITE, bruceConfig.bgColor);
     tft.drawString("Radio: " + String(radio), 4, 36);
     tft.drawString("Pass: " + String(pass + 1) + " / 3", 4, 52);
@@ -236,7 +236,7 @@ BleResult runBleSurvey() {
 
     wifiDisconnect();
     stopBLEStack();
-    NimBLEDevice::init("Mako-Antenna-ID");
+    NimBLEDevice::init("HUGINN-Antenna-Survey");
     NimBLEScan *scanner = NimBLEDevice::getScan();
     scanner->setActiveScan(false);
     scanner->setInterval(160);
@@ -305,7 +305,7 @@ void drawWifiGroup(const WifiGroupDefinition &definition, const WifiGroupResult 
 }
 
 void drawResults(const WifiResult &wifi, const BleResult &ble) {
-    drawHeader("ESP32-S3 2.4 GHz result");
+    drawHeader("ESP32 2.4 GHz result");
 
     String classification;
     if (wifi.evidence && ble.evidence) classification = "2.4G RESPONSE: WIFI + BLE";
@@ -333,12 +333,13 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
     tft.drawString(bleLine, 4, 119);
 
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-    tft.drawString("Ambient response - AP layout affects result", 4, 136);
+    tft.drawString("Ambient RSSI; not antenna gain or match", 4, 136);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.drawString("SEL: rescan     ESC: back", 4, tftHeight - 13);
 }
 
 void printResults(const WifiResult &wifi, const BleResult &ble) {
+    Serial.printf("[ANTENNA_ID_24] board=%s firmware=%s git=%s; score is heuristic, not percent\n", DEVICE_NAME, BRUCE_VERSION, GIT_COMMIT_HASH);
     Serial.println("[ANTENNA_ID_24] wifi_group,peak_channel,peak_mhz,peak_dbm,passes,observations");
     for (uint8_t i = 0; i < WIFI_GROUPS; i++) {
         const WifiGroupResult &group = wifi.groups[i];

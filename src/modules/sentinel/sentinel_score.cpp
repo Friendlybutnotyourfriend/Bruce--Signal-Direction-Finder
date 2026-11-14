@@ -103,7 +103,7 @@ Severity score_evil_twin(uint8_t bssid_count, bool known_security_differs, bool 
     if (bssid_count < 2) return Severity::None;
     if (open_versus_encrypted) return Severity::High;
     if (known_security_differs) return Severity::Medium;
-    return Severity::Low;
+    return Severity::Info;
 }
 
 Severity score_karma(KarmaInput in, Thresholds t) {
@@ -184,9 +184,9 @@ const char *summary_for(Kind kind, Severity severity) {
         case Kind::EvilTwin: return "Same name, different access point";
         case Kind::KarmaProbe: return "Karma-style probe responses";
         case Kind::BleSpam:
-            return severity == Severity::Info ? "Popup family, not a one-shot flood" : "Advertisement spam family";
+            return severity == Severity::Info ? "Elevated popup-family traffic" : "Advertisement spam family";
         case Kind::HidGatt: return "New HID-over-GATT advertisement";
-        case Kind::Tracker: return "Unknown tracker behaviour";
+        case Kind::Tracker: return "Tracker-family sightings";
         case Kind::Note: return "Session note";
         case Kind::Count: break;
     }
@@ -199,7 +199,7 @@ const char *explanation_for(Kind kind, Severity severity) {
         case Kind::Deauth:
             return "Deauthentication or disassociation frames naming one access point were elevated. "
                    "The count is only what this radio heard on the channel it was tuned to. "
-                   "While hopping, that is a lower bound. Sentinel did not send these frames.";
+                   "Rate uses time enabled on that channel, not unseen airtime. Sentinel did not send these frames.";
         case Kind::BeaconFlood:
             if (severity == Severity::Info) {
                 return "Many network names were repeating. That looks like a busy place, not a one-shot "
@@ -225,9 +225,8 @@ const char *explanation_for(Kind kind, Severity severity) {
                    "probe.";
         case Kind::BleSpam:
             if (severity == Severity::Info) {
-                return "Advertisements from a known popup family were elevated, but the addresses were "
-                       "repeating or there were too few of them. Ordinary phones keep advertising from the "
-                       "same address. This is family evidence, not a device identity.";
+                return "Elevated popup-family traffic, with repeated or few addresses. Ordinary phones "
+                       "and repeated-address floods can both do this. Rate alone cannot distinguish them.";
             }
             return "Elevated advertisements from a known popup family (Apple continuity, Fast Pair, Swift "
                    "Pair, or Samsung EasySetup) came from several addresses that were each heard once. "
@@ -236,9 +235,8 @@ const char *explanation_for(Kind kind, Severity severity) {
             return "A new address advertised the HID-over-GATT service. Keyboards, mice, and BadBLE-style "
                    "devices all advertise this service. Sentinel did not connect.";
         case Kind::Tracker:
-            return "Unknown tracker behaviour: a tracker-family advertisement persisted or was heard at "
-                   "more than one checkpoint you marked. It may be your own tag. This does not name an "
-                   "owner. Rotating addresses are often missed.";
+            return "Tracker-family advertisement seen over time or across marked checkpoints. This does "
+                   "not establish ownership or that anyone is following you. Rotating addresses may be missed.";
         case Kind::Note: return "Session bookkeeping. No radio pattern is claimed by this line.";
         case Kind::Count: break;
     }

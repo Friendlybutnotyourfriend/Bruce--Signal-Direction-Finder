@@ -107,3 +107,13 @@ pio run -e nm-cyd-c5 -t upload
 Or, with the image already built: `esptool --chip esp32s3 write-flash 0x0 Bruce-m5stack-cardputer.bin` and `esptool --chip esp32c5 write-flash 0x0 Bruce-nm-cyd-c5.bin`. The C5 bootloader sits at `0x2000` inside that merged file.
 
 `fastled/FastLED` is pinned to 3.10.3 in `platformio.ini`. The original `^3.10.3` range now installs 3.10.9, and 3.10.5 and later use the name `FP`, which Bruce's `-DFP` font-size macro rewrites, so those releases do not compile. 3.10.3 is the newest published version in the original range that does not do that. No Bruce source commit after tag 1.16.1 is included.
+
+## CBD stabilisation update
+
+Deauth rate uses receiver-enabled milliseconds on the observed channel and the
+locked-channel thresholds. Windows with under 100 ms of channel exposure remain
+informational. The watch displays cumulative enabled time; the final JSON record
+has `kind: coverage`, `channel_ms` (channels 1 through 14) and `ble_ms`. These do
+not compensate for scan gaps or queue losses and do not estimate unseen traffic.
+Matching-security same-SSID APs are informational. Repeated-address popup traffic
+is ambiguous, not proven benign. SD write failures and the log cap appear on-screen.

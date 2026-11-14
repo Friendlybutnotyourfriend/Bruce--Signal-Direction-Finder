@@ -28,7 +28,7 @@ bool Capture::begin(const char *mode, const char *target) {
     if (path.isEmpty()) return false;
     file = SD.open(path, FILE_WRITE);
     if (!file) return false;
-    line(String("{\"type\":\"header\",\"schema\":1,\"firmware\":\"field-evolution-1\",\"mode\":\"") + mode +
+    line(String("{\"type\":\"header\",\"schema\":1,\"firmware\":\"") + BRUCE_VERSION + "\",\"board\":\"" + DEVICE_NAME + "\",\"git\":\"" + GIT_COMMIT_HASH + "\",\"mode\":\"" + mode +
          "\",\"target\":\"" + target + "\",\"clock\":\"monotonic_us\",\"payload_cap\":256}");
     enabled = !failed;
     lastFlush = millis();

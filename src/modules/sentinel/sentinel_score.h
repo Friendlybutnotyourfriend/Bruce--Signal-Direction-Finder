@@ -7,6 +7,33 @@
 
 namespace sentinel {
 
+// Channel 0 is idle, 1..14 Wi-Fi, 15 BLE. Caller serializes access.
+struct Exposure {
+    uint32_t window[16]{};
+    uint32_t total[16]{};
+    uint32_t previous = 0;
+    uint8_t channel = 0;
+    void update(uint32_t now) {
+        const uint32_t elapsed = now - previous;
+        if (channel) { window[channel] += elapsed; total[channel] += elapsed; }
+        previous = now;
+    }
+    void select(uint8_t next, uint32_t now) {
+        update(now);
+        channel = next < 16 ? next : 0;
+    }
+    void resetWindow(uint32_t now) {
+        update(now);
+        for (auto &value : window) value = 0;
+    }
+};
+
+inline uint16_t observedRate(uint32_t count, uint32_t listeningMs) {
+    if (listeningMs == 0) return 0;
+    const uint64_t rate = uint64_t(count) * 1000 / listeningMs;
+    return rate > 65535 ? 65535 : uint16_t(rate);
+}
+
 enum class Severity : uint8_t { None = 0, Info = 1, Low = 2, Medium = 3, High = 4 };
 
 enum class Kind : uint8_t {
