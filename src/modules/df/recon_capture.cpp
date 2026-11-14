@@ -1,4 +1,5 @@
 #include "recon_capture.h"
+#include <globals.h>
 #include "core/sd_functions.h"
 #include <esp_timer.h>
 
