@@ -1,5 +1,6 @@
 #include "rf_lab.h"
 #include "core.h"
+#include "capture_limits.h"
 #include "core/display.h"
 #include "core/sd_functions.h"
 #include "modules/radio_control/radio_control.h"
@@ -43,7 +44,11 @@ public:
         }
         active = initRfModule("rx", s.frequencyMHz);
         if (!active) { deinitRfModule(); displayError("CC1101 unavailable", true); return false; }
-        return RadioControl::applyReceiveSettings(s);
+        if (!RadioControl::applyReceiveSettings(s)) {
+            displayError("Receiver settings not applied", true);
+            return false;
+        }
+        return true;
     }
     ~RadioSession() {
         if (active) {
@@ -59,7 +64,7 @@ class PulseCapture {
     rmt_channel_handle_t channel = nullptr;
     QueueHandle_t queue = nullptr;
     bool enabled = false;
-    rmt_symbol_word_t symbols[128]{};
+    rmt_symbol_word_t symbols[RfLab::CaptureSymbols]{};
     static bool done(rmt_channel_handle_t, const rmt_rx_done_event_data_t *data, void *ctx) {
         auto self = static_cast<PulseCapture *>(ctx);
         BaseType_t wake = pdFALSE;
@@ -68,7 +73,7 @@ class PulseCapture {
     }
     bool arm() {
         rmt_receive_config_t cfg{};
-        cfg.signal_range_min_ns = 20000;
+        cfg.signal_range_min_ns = RfLab::GlitchFilterNs;
         cfg.signal_range_max_ns = 12000000;
         return rmt_receive(channel, symbols, sizeof(symbols), &cfg) == ESP_OK;
     }
@@ -81,7 +86,9 @@ public:
         cfg.gpio_num = static_cast<gpio_num_t>(bruceConfigPins.CC1101_bus.io0);
         cfg.clk_src = RMT_CLK_SRC_DEFAULT;
         cfg.resolution_hz = 1000000;
-        cfg.mem_block_symbols = 64;
+        // Classic ESP32 RX cannot ping-pong. Reserve the full capture size
+        // in hardware as well as in the destination buffer.
+        cfg.mem_block_symbols = RfLab::CaptureSymbols;
         if (rmt_new_rx_channel(&cfg, &channel) != ESP_OK) return false;
         rmt_rx_event_callbacks_t callbacks{};
         callbacks.on_recv_done = done;
@@ -94,7 +101,7 @@ public:
         rmt_rx_done_event_data_t result{};
         if (xQueueReceive(queue, &result, 0) != pdPASS) return false;
         if (energy && result.num_symbols >= 8) {
-            if (result.num_symbols >= 128) ++e.clipped;
+            if (RfLab::captureClipped(result.num_symbols, RfLab::CaptureSymbols)) ++e.clipped;
             else {
                 const uint32_t before = e.pulses;
                 for (size_t i = 0; i < result.num_symbols; ++i) {
@@ -156,6 +163,9 @@ void blackBox() {
     delay(20);
     JsonDocument header;
     header["schema"] = "bruce.rf-blackbox.v1";
+    header["board"] = BRUCE_BOARD_NAME;
+    header["firmware"] = BRUCE_VERSION;
+    header["git"] = GIT_COMMIT_HASH;
     header["clock"] = "uptime_ms; wraps at 2^32; not UTC";
     header["mode"] = "fixed_frequency_sampled_rssi";
     header["nominal_sample_ms"] = 20;
@@ -165,6 +175,7 @@ void blackBox() {
     header["limit_events"] = 100;
     header["notes"] = "RSSI only; no IQ or raw pulse prebuffer. Storage/UI cause gaps; timestamps are actual sample times.";
     settingsJson(header["receiver"].to<JsonObject>(), selected);
+    header["receiver"]["register_base_mhz"] = RadioControl::programmedFrequencyMHz();
     if (!writeJson(log, header)) { displayError("SD write failed", true); return; }
     RfLab::Detector detector;
     RfLab::Ring<64> pre;
@@ -260,10 +271,19 @@ struct Candidate {
     int score = 0;
     int32_t example[256]{};
     size_t exampleSize = 0;
+    float registerMHz = 0;
+    uint8_t modem[3]{};
 };
 
 bool collect(Candidate &c, unsigned round) {
-    if (!RadioControl::applyReceiveSettings(c.settings)) return false;
+    if (!RadioControl::applyReceiveSettings(c.settings)) {
+        displayError("Receiver settings not applied", true);
+        return false;
+    }
+    c.registerMHz = RadioControl::programmedFrequencyMHz();
+    c.modem[0] = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG4);
+    c.modem[1] = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG3);
+    c.modem[2] = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2);
     delay(20);
     PulseCapture capture;
     if (!capture.begin()) { displayError("RMT capture unavailable", true); return false; }
@@ -298,16 +318,22 @@ void saveCandidate(const Candidate &c) {
     File f = createNewFile(fs, "/RF-Lab", sessionName("profile"));
     JsonDocument doc;
     doc["schema"] = "bruce.rx-profile.v1";
+    doc["board"] = BRUCE_BOARD_NAME;
+    doc["firmware"] = BRUCE_VERSION;
+    doc["git"] = GIT_COMMIT_HASH;
     doc["identification"] = "unknown; receiver candidate only";
     doc["score_is_probability"] = false;
     doc["heuristic_score"] = c.score;
     doc["gate_dbm"] = gateDbm;
     doc["dwell_per_round_ms"] = DwellMs;
     doc["rounds"] = 2;
-    doc["capture"] = "1us RMT, 20us glitch filter, 12ms idle split; signed levels";
+    doc["capture"] = "1us RMT, 3us glitch filter, 12ms idle split; signed levels; full buffers excluded";
     doc["histogram"] = "32 bins; upper edge starts 25us, next=floor(edge*5/4)+1; 20<=pulse<12000us";
     doc["limitations"] = "No IQ, protocol or CRC validation. Energy gate polled every 5ms within capture segments. OOK/FSK/GFSK may remain ambiguous. Live repeated transmissions required.";
     settingsJson(doc["receiver"].to<JsonObject>(), c.settings);
+    doc["receiver"]["register_base_mhz"] = c.registerMHz;
+    auto registers = doc["receiver"]["mdmcfg4_3_2"].to<JsonArray>();
+    for (auto value : c.modem) registers.add(value);
     evidenceJson(doc["first_pass"].to<JsonObject>(), c.rounds[0]);
     evidenceJson(doc["second_pass"].to<JsonObject>(), c.rounds[1]);
     auto pulses = doc["example_pulses_us"].to<JsonArray>();
@@ -357,6 +383,12 @@ void finder() {
             String label = String(c.score) + " " + modName(c.settings.modulation) + " " + String(c.settings.rateKBaud, 1) + "k/" + String(c.settings.bandwidthKHz, 0);
             items.push_back({label, [&, i]() {
                 auto &candidate = candidates[i];
+                screen("RECEIVER CANDIDATE",
+                       "Score " + String(candidate.score) + "/100 (not %)",
+                       "Segments " + String(candidate.rounds[0].frames) + "/" + String(candidate.rounds[1].frames) +
+                       "  clipped " + String(candidate.rounds[0].clipped + candidate.rounds[1].clipped),
+                       "SEL options / ESC back");
+                while (!check(SelPress)) { if (check(EscPress)) return; delay(20); }
                 std::vector<Option> actions = {
                     {"Use for Black Box", [&]() { selected = candidate.settings; }},
                     {"Save profile + evidence", [&]() { saveCandidate(candidate); }},

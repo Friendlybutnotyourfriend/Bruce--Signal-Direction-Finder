@@ -6,6 +6,7 @@
 #include "core/sd_functions.h"
 #include "modules/ble/ble_common.h"
 #include "modules/df/recon_core.h"
+#include "modules/radio_control/radio_control.h"
 #include <globals.h>
 #include <algorithm>
 #include <cmath>
@@ -59,7 +60,14 @@ bool measure(unsigned phase, bool ble, float frequency) {
         pBLEScan->setScanCallbacks(&referenceCallbacks, true);
         pBLEScan->setMaxResults(0); pBLEScan->setActiveScan(false);
         if (!pBLEScan->start(0, false, true)) return false;
-    } else if (!initRfModule("rx", frequency)) return false;
+    } else {
+        if (!initRfModule("rx", frequency)) { deinitRfModule(); return false; }
+        if (fabsf(RadioControl::programmedFrequencyMHz() - frequency) > 0.002f) {
+            deinitRfModule();
+            displayError("Requested frequency not applied", true);
+            return false;
+        }
+    }
     const uint32_t start = millis();
     unsigned count = 0;
     bool cancelled = false;
@@ -133,8 +141,10 @@ void rf_antenna_compare(bool ble) {
         if (bruceConfigPins.rfModule != CC1101_SPI_MODULE) { displayError("Requires CC1101", true); return; }
         const String text = num_keyboard("433.92", 9, "Source frequency MHz");
         frequency = text.toFloat();
-        if (!((frequency >= 300 && frequency <= 348) || (frequency >= 387 && frequency <= 464) || (frequency >= 779 && frequency <= 928))) {
-            displayWarning("Unsupported CC1101 band", true); return;
+        RadioControl::ReceiveSettings settings;
+        settings.frequencyMHz = frequency;
+        if (!RadioControl::validReceiveSettings(settings)) {
+            displayWarning("Outside this radio's band", true); return;
         }
     }
     const String name = safeName(keyboard("antenna", 24, "Candidate profile name"));
@@ -154,13 +164,13 @@ void rf_antenna_compare(bool ble) {
     bool saved = false;
     String path;
     if (setupSdCard() && (SD.exists("/AntennaProfiles") || SD.mkdir("/AntennaProfiles"))) {
-        path = "/AntennaProfiles/" + name + (ble ? "-esp32-ble.csv" : "-cc1101.csv");
+        path = "/AntennaProfiles/" + name + (ble ? "-esp32-ble-v2.csv" : "-cc1101-v2.csv");
         const bool exists = SD.exists(path);
         File file = SD.open(path, FILE_APPEND);
         if (file) {
             bool ok = true;
-            if (!exists) ok = file.println("uptime_ms,path,frequency_mhz,beacon,reference_before_dbm,candidate_dbm,reference_after_dbm,relative_db,drift_db,uncertainty_db,reliable") > 0;
-            const String row = String(millis()) + "," + (ble ? "ESP32_BLE,2400-2483.5," : "CC1101," + String(frequency, 3) + ",") + (ble ? beacon : "") + "," + String(a, 1) + "," + String(b, 1) + "," + String(c, 1) + "," + String(result.delta, 1) + "," + String(result.drift, 1) + "," + String(result.uncertainty, 1) + "," + (result.reliable ? "true" : "false");
+            if (!exists) ok = file.println("uptime_ms,path,frequency_mhz,beacon,reference_before_dbm,candidate_dbm,reference_after_dbm,relative_db,drift_db,uncertainty_db,reliable,board,firmware,git") > 0;
+            const String row = String(millis()) + "," + (ble ? "ESP32_BLE,2400-2483.5," : "CC1101," + String(frequency, 3) + ",") + (ble ? beacon : "") + "," + String(a, 1) + "," + String(b, 1) + "," + String(c, 1) + "," + String(result.delta, 1) + "," + String(result.drift, 1) + "," + String(result.uncertainty, 1) + "," + (result.reliable ? "true" : "false") + "," + BRUCE_BOARD_NAME + "," + BRUCE_VERSION + "," + GIT_COMMIT_HASH;
             saved = ok && file.println(row) == row.length() + 2;
             file.flush(); file.close();
         }
@@ -209,12 +219,12 @@ void rf_antenna_profiles() {
     while (file.available() && count < 128) {
         if (check(EscPress)) { file.close(); return; }
         const String text = line();
-        String cells[11]; unsigned cell = 0;
+        String cells[14]; unsigned cell = 0;
         for (unsigned i = 0; i < text.length(); ++i) {
-            if (text[i] == ',') { if (++cell >= 11) break; }
-            else if (cell < 11) cells[cell] += text[i];
+            if (text[i] == ',') { if (++cell >= 14) break; }
+            else if (cell < 14) cells[cell] += text[i];
         }
-        if (cell != (vna ? 2u : 10u)) { ++ignored; continue; }
+        if (vna ? cell != 2u : (cell != 10u && cell != 13u)) { ++ignored; continue; }
         const auto number = [](const String &value, float &out) {
             char *end = nullptr; out = strtof(value.c_str(), &end);
             return end != value.c_str() && *end == 0 && std::isfinite(out);

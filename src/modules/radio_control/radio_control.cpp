@@ -161,9 +161,18 @@ bool applyReceiveSettings(const ReceiveSettings &s) {
     ELECHOUSE_cc1101.setDRate(s.rateKBaud);
     ELECHOUSE_cc1101.setRxBW(s.bandwidthKHz);
     ELECHOUSE_cc1101.setPktFormat(3);
+    ELECHOUSE_cc1101.setChannel(0);
     setMHZ(s.frequencyMHz);
+    if (fabsf(programmedFrequencyMHz() - s.frequencyMHz) > 0.002f) return false;
     ELECHOUSE_cc1101.SetRx();
     return true;
+}
+
+float programmedFrequencyMHz() {
+    const uint32_t word = (uint32_t(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
+                          (uint32_t(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ1)) << 8) |
+                          ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ0);
+    return float(word) * (26.0f / 65536.0f);
 }
 
 void applyCcTxPower() {

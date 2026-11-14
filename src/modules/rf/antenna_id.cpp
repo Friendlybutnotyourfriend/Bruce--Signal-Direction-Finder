@@ -254,12 +254,12 @@ void drawResults(const BandResult results[BAND_COUNT]) {
     if (evidenceCount == 0) {
         classification = "INCONCLUSIVE - LOW RF EVIDENCE";
     } else if (evidenceCount > 1) {
-        classification = "POSSIBLE MULTI-BAND RESPONSE";
+        classification = "ACTIVITY IN MULTIPLE BANDS";
     } else {
 #if defined(FENRIR_EBYTE)
         classification = "RF ACTIVITY IN E07 BAND";
 #else
-        classification = "LIKELY " + likelyBandName(strongest, results[strongest].peakFrequency);
+        classification = "ACTIVITY: " + likelyBandName(strongest, results[strongest].peakFrequency);
 #endif
     }
     tft.drawString(classification, 4, 31);
@@ -282,6 +282,7 @@ void drawResults(const BandResult results[BAND_COUNT]) {
 }
 
 void printResults(const BandResult results[BAND_COUNT]) {
+    Serial.printf("[ANTENNA_ID] board=%s firmware=%s git=%s; score is heuristic, not percent\n", BRUCE_BOARD_NAME, BRUCE_VERSION, GIT_COMMIT_HASH);
     Serial.println("[ANTENNA_ID] band,peak_mhz,peak_dbm,baseline_dbm,prominence_db,spread_db,score,evidence");
     for (uint8_t i = 0; i < BAND_COUNT; i++) {
         Serial.printf(

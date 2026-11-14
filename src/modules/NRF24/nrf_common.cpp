@@ -1,4 +1,5 @@
 #include "nrf_common.h"
+#include "core/radio_pin_validation.h"
 #include "modules/radio_control/radio_control.h"
 #include "../../core/bus_HAL.h"
 #include "../../core/mykeyboard.h"
@@ -43,6 +44,14 @@ bool nrf_start(NRF24_MODE mode) {
     };
 
     if (!CHECK_NRF_SPI(mode)) return result;
+
+#if defined(CBD_EXTERNAL_PIN_VALIDATION)
+    const auto &p = bruceConfigPins.NRF24_bus;
+    if (!radioPins::distinct(p.sck, p.miso, p.mosi, p.cs, p.io0)) {
+        displayError("Set separate NRF24 CE pin", true);
+        return false;
+    }
+#endif
 
     // Always re-assert CE LOW and CS HIGH before begin() — these pins
     // may have been left in an indeterminate state by the previous session,

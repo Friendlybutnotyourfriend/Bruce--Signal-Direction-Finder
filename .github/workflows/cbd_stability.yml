@@ -1,0 +1,36 @@
+name: CBD stability
+on:
+  pull_request:
+    branches: [cursor/sentinel-316d, cursor/bruce-1.16.1-316d]
+  push:
+    branches: [codex/es3c28p-stabilisation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Host regressions
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror tests/sentinel_score_test.cpp src/modules/sentinel/sentinel_score.cpp -I src/modules/sentinel -o /tmp/sentinel
+          /tmp/sentinel
+          for test in rf_lab_core recon_core cbd_stability; do
+            g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined tests/${test}_test.cpp -o /tmp/${test}
+            /tmp/${test}
+          done
+      - name: Build CBD
+        run: |
+          python -m pip install platformio==6.2.0
+          pio run -e ES3C28P
+          python scripts/package_cbd.py --output .pio/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ES3C28P-stability-bench-candidate
+          path: .pio/release/*
+          if-no-files-found: error

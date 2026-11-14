@@ -162,6 +162,8 @@ struct Live {
     uint16_t beacon_unique;
     uint32_t wifi_drops;
     uint32_t ble_drops;
+    uint32_t channel_ms;
+    uint32_t ble_ms;
     uint8_t checkpoint;
     bool table_full;
     bool beacon_capped;
@@ -226,6 +228,7 @@ uint8_t g_saved_count = 0;
 uint8_t g_saved_next = 0;
 uint8_t g_pending_n = 0;
 uint32_t g_window_start = 0;
+sentinel::Exposure g_exposure;
 uint32_t g_ble_listen_ms = 0;
 bool g_baseline_done = false;
 uint8_t g_checkpoint = 0;
@@ -249,6 +252,7 @@ volatile uint32_t g_ble_drops = 0;
 File g_log;
 size_t g_log_bytes = 0;
 bool g_log_capped = false;
+bool g_log_failed = false;
 bool g_sd_log = true;
 char g_log_path[80] = {0};
 
@@ -688,6 +692,7 @@ void apply_checkpoint_mark() {
 }
 
 void score_tick(uint32_t now) {
+    g_exposure.update(now);
     g_raised_this_tick = false;
     apply_checkpoint_mark();
     if (g_reset_window) {
@@ -701,12 +706,13 @@ void score_tick(uint32_t now) {
         memset(g_spam_unique, 0, sizeof(g_spam_unique));
         for (int i = 0; i < kHidCap; i++) g_hid[i].counted = false;
         g_window_start = now;
+        g_exposure.resetWindow(now);
         return;
     }
     uint32_t elapsed = (uint32_t)(now - g_window_start);
     if (elapsed < 800) return;
     if (g_ble_active) {
-        g_ble_listen_ms += elapsed;
+        g_ble_listen_ms += g_exposure.window[15];
         if (g_ble_listen_ms >= kBaselineMs) g_baseline_done = true;
     }
     g_live.baseline_done = g_baseline_done;
@@ -719,20 +725,25 @@ void score_tick(uint32_t now) {
     uint16_t top = 0;
     for (int i = 0; i < kBssidCap; i++) {
         if (!g_bssid[i].used || g_bssid[i].deauth == 0) continue;
-        uint32_t per_s = (uint32_t)g_bssid[i].deauth * 1000u / elapsed;
-        if (per_s > 65535) per_s = 65535;
+        const uint8_t channel = g_bssid[i].channel;
+        const uint32_t dwell = channel < 15 ? g_exposure.window[channel] : 0;
+        uint32_t per_s = sentinel::observedRate(g_bssid[i].deauth, dwell);
         if ((uint16_t)per_s > top) top = (uint16_t)per_s;
-        sentinel::Severity sev = sentinel::score_deauth((uint16_t)per_s, locked);
+        // Normalize by actual channel exposure, then use the locked-rate
+        // thresholds. Very short observations cannot support escalation.
+        sentinel::Severity sev = dwell >= 100 ? sentinel::score_deauth((uint16_t)per_s, true)
+                                              : sentinel::Severity::Info;
         char mac[18];
         char detail[96];
         fmt_mac(mac, sizeof(mac), g_bssid[i].bssid);
         snprintf(
             detail,
             sizeof(detail),
-            "bssid=%s ch=%u observed=%lu/s hopping=%s",
+            "bssid=%s ch=%u observed=%lu/s dwell=%lums hop=%s",
             mac,
             g_bssid[i].channel,
             (unsigned long)per_s,
+            (unsigned long)dwell,
             locked ? "no" : "yes"
         );
         raise_finding(sentinel::Kind::Deauth, sev, hash_mac(g_bssid[i].bssid), detail);
@@ -817,8 +828,7 @@ void score_tick(uint32_t now) {
     }
 
     for (int b = 0; b < 4; b++) {
-        uint32_t ads = (uint32_t)g_spam_ads[b] * 1000u / elapsed;
-        if (ads > 65535) ads = 65535;
+        uint32_t ads = sentinel::observedRate(g_spam_ads[b], g_exposure.window[15]);
         uint8_t once = 0;
         uint8_t bit = kFamilyBit[b];
         for (uint8_t i = 0; i < g_spam_n; i++) {
@@ -829,11 +839,12 @@ void score_tick(uint32_t now) {
         snprintf(
             detail,
             sizeof(detail),
-            "family=%s ads=%lu/s addrs=%u once=%u",
+            "family=%s ads=%lu/s addrs=%u once=%u dwell=%lums",
             sentinel::ble_family_name(kFamilyBit[b]),
             (unsigned long)ads,
             g_spam_unique[b],
-            once
+            once,
+            (unsigned long)g_exposure.window[15]
         );
         raise_finding(sentinel::Kind::BleSpam, sev, (uint32_t)kFamilyBit[b], detail);
     }
@@ -897,6 +908,7 @@ void score_tick(uint32_t now) {
         );
     }
     g_window_start = now;
+    g_exposure.resetWindow(now);
 }
 
 void worker_task(void *arg) {
@@ -925,9 +937,11 @@ void worker_task(void *arg) {
             }
         }
         uint32_t now = millis();
-        if (g_window_start == 0 || (uint32_t)(now - g_window_start) >= 1000) {
+        if (g_reset_window || g_window_start == 0 || (uint32_t)(now - g_window_start) >= 1000) {
             if (g_mu != nullptr && xSemaphoreTake(g_mu, pdMS_TO_TICKS(50)) == pdTRUE) {
-                score_tick(now);
+                // UI exposure updates can run while we wait for this mutex.
+                // Use a fresh timestamp so subtraction cannot wrap backwards.
+                score_tick(millis());
                 xSemaphoreGive(g_mu);
             }
         }
@@ -944,7 +958,6 @@ void wifi_rx(void *buf, wifi_promiscuous_pkt_type_t type) {
     uint16_t sig = pkt->rx_ctrl.sig_len;
     size_t frame_len = sentinel::mgmt_len_without_fcs(sig);
     if (frame_len < 24) return;
-    if (frame_len > 512) frame_len = 512;
     const uint8_t *frame = pkt->payload;
     uint16_t fc = (uint16_t)frame[0] | ((uint16_t)frame[1] << 8);
     uint8_t ftype = (uint8_t)((fc >> 2) & 0x3);
@@ -1004,6 +1017,8 @@ void session_reset() {
     g_saved_next = 0;
     g_pending_n = 0;
     g_window_start = millis();
+    g_exposure = sentinel::Exposure{};
+    g_exposure.previous = g_window_start;
     g_ble_listen_ms = 0;
     g_baseline_done = false;
     g_checkpoint = 0;
@@ -1040,7 +1055,7 @@ void wall_now(char *out, size_t n) {
 }
 
 bool write_log_bytes(const char *text, size_t n) {
-    if (!g_log || text == nullptr || n == 0 || g_log_capped) return false;
+    if (!g_log || text == nullptr || n == 0 || g_log_capped || g_log_failed) return false;
     if (g_log_bytes + n > kMaxLogBytes) {
         g_log_capped = true;
         const char *cap =
@@ -1057,13 +1072,15 @@ bool write_log_bytes(const char *text, size_t n) {
     size_t wrote = g_log.write((const uint8_t *)text, n);
     g_log_bytes += wrote;
     g_log.flush();
-    return wrote == n;
+    g_log_failed = wrote != n || g_log.getWriteError();
+    return !g_log_failed;
 }
 
 void open_log(WatchMode mode) {
     g_log_path[0] = '\0';
     g_log_bytes = 0;
     g_log_capped = false;
+    g_log_failed = false;
     if (!g_sd_log || !sdcardMounted) return;
     if (!SD.exists("/Bruce")) SD.mkdir("/Bruce");
     if (!SD.exists("/Bruce/Sentinel")) SD.mkdir("/Bruce/Sentinel");
@@ -1154,9 +1171,37 @@ void drain_logs() {
 
 void close_log() {
     if (g_log) {
+        // Radios and worker are stopped before this snapshot.
+        char coverage[384];
+        size_t used = snprintf(coverage, sizeof(coverage), "{\"kind\":\"coverage\",\"channel_ms\":[");
+        for (unsigned i = 1; i <= 14; ++i)
+            used += snprintf(coverage + used, sizeof(coverage) - used, "%s%lu", i == 1 ? "" : ",",
+                             (unsigned long)g_exposure.total[i]);
+        used += snprintf(coverage + used, sizeof(coverage) - used,
+                         "],\"ble_ms\":%lu,\"note\":\"enabled receiver time; scan gaps and queue drops still apply\"}\n",
+                         (unsigned long)g_exposure.total[15]);
+        write_log_bytes(coverage, used);
         g_log.flush();
         g_log.close();
     }
+}
+
+void select_exposure(uint8_t channel) {
+    if (g_mu && xSemaphoreTake(g_mu, portMAX_DELAY) == pdTRUE) {
+        g_exposure.select(channel, millis());
+        xSemaphoreGive(g_mu);
+    }
+}
+
+bool tune_watch_channel(uint8_t channel) {
+    select_exposure(0);
+    if (esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE) != ESP_OK) {
+        select_exposure(g_ui_channel);
+        return false;
+    }
+    g_ui_channel = channel;
+    select_exposure(channel);
+    return true;
 }
 
 bool start_wifi() {
@@ -1194,13 +1239,22 @@ bool start_wifi() {
         return false;
     }
     if (g_ui_channel < 1 || g_ui_channel > 11) g_ui_channel = 1;
-    esp_wifi_set_channel(g_ui_channel, WIFI_SECOND_CHAN_NONE);
+    if (!tune_watch_channel(g_ui_channel)) {
+        select_exposure(0);
+        esp_wifi_set_promiscuous(false);
+        esp_wifi_set_promiscuous_rx_cb(nullptr);
+        esp_wifi_stop();
+        wifiDisconnect();
+        displayError("Cannot tune watch channel", true);
+        return false;
+    }
     g_wifi_capture = true;
     g_reset_window = true;
     return true;
 }
 
 void stop_wifi() {
+    select_exposure(0);
     g_wifi_capture = false;
     esp_wifi_set_promiscuous(false);
     esp_wifi_set_promiscuous_rx_cb(nullptr);
@@ -1229,10 +1283,12 @@ bool start_ble() {
         stopBLEStack();
         return false;
     }
+    select_exposure(15);
     return true;
 }
 
 void stop_ble() {
+    select_exposure(0);
     g_ble_capture = false;
     g_ble_active = false;
     if (pBLEScan != nullptr) {
@@ -1305,6 +1361,9 @@ void draw_watch(WatchMode mode, bool wifi_on, bool ble_on, bool switching) {
         live = g_live;
         live.wifi_drops = g_wifi_drops;
         live.ble_drops = g_ble_drops;
+        g_exposure.update(millis());
+        live.channel_ms = g_exposure.total[g_ui_channel];
+        live.ble_ms = g_exposure.total[15];
         xSemaphoreGive(g_mu);
     }
     drawMainBorder(true);
@@ -1379,6 +1438,12 @@ void draw_watch(WatchMode mode, bool wifi_on, bool ble_on, bool switching) {
     if ((int)strlen(status) > cpl) status[cpl] = '\0';
     tft.drawString(status, 8, y, 1);
     y += LH * FP;
+    snprintf(status, sizeof(status), "Enabled: ch%u %lus BLE %lus", g_ui_channel,
+             (unsigned long)(live.channel_ms / 1000), (unsigned long)(live.ble_ms / 1000));
+    if (y < bottom - 2 * LH * FP) {
+        tft.drawString(status, 8, y, 1);
+        y += LH * FP;
+    }
 
     int find_room = (bottom - y) / (LH * FP) - 1;
     if (find_room < 0) find_room = 0;
@@ -1404,6 +1469,8 @@ void draw_watch(WatchMode mode, bool wifi_on, bool ble_on, bool switching) {
     const char *hint = hints[(millis() / 4000) % (sizeof(hints) / sizeof(hints[0]))];
     if (live.table_full) hint = "A table is full. Extra devices unscored.";
     if (!wifi_on && !ble_on) hint = "This radio is not in a listen mode.";
+    if (g_log_capped) hint = "SD log full: recording stopped.";
+    if (g_log_failed) hint = "SD WRITE ERROR: log incomplete.";
     char hint_buf[48];
     snprintf(hint_buf, sizeof(hint_buf), "%s", hint);
     if ((int)strlen(hint_buf) > cpl) hint_buf[cpl] = '\0';
@@ -1419,13 +1486,11 @@ void handle_buttons(WatchMode mode, bool wifi_on) {
     if (mode != WatchMode::Ble && wifi_on) {
         if (check(UpPress)) {
             g_locked = true;
-            if (g_ui_channel < 11) g_ui_channel = (uint8_t)(g_ui_channel + 1);
-            esp_wifi_set_channel(g_ui_channel, WIFI_SECOND_CHAN_NONE);
+            if (g_ui_channel < 11) tune_watch_channel(g_ui_channel + 1);
         }
         if (check(DownPress)) {
             g_locked = true;
-            if (g_ui_channel > 1) g_ui_channel = (uint8_t)(g_ui_channel - 1);
-            esp_wifi_set_channel(g_ui_channel, WIFI_SECOND_CHAN_NONE);
+            if (g_ui_channel > 1) tune_watch_channel(g_ui_channel - 1);
         }
     }
     if (mode == WatchMode::Wifi && check(SelPress)) g_locked = !g_locked;
@@ -1440,8 +1505,7 @@ void hop_channel(bool wifi_on) {
     if ((uint32_t)(now - last) < kHopMs) return;
     last = now;
     idx = (idx + 1) % 11;
-    g_ui_channel = kChannels[idx];
-    esp_wifi_set_channel(g_ui_channel, WIFI_SECOND_CHAN_NONE);
+    tune_watch_channel(kChannels[idx]);
 }
 
 void sentinel_watch(WatchMode mode) {

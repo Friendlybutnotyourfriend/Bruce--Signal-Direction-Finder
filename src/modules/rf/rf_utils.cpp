@@ -1,4 +1,5 @@
 #include "rf_utils.h"
+#include "core/radio_pin_validation.h"
 #include "modules/radio_control/radio_control.h"
 #include "core/bus_HAL.h"
 #include "core/sd_functions.h"
@@ -241,6 +242,15 @@ void RfCodes::keeloq_step(uint16_t step) {
 // split_string + KeeloqKeystore moved to protocols/rf_keeloq.cpp.
 
 bool initRfModule(String mode, float frequency) {
+#if defined(CBD_EXTERNAL_PIN_VALIDATION)
+    if (bruceConfigPins.rfModule == CC1101_SPI_MODULE) {
+        const auto &p = bruceConfigPins.CC1101_bus;
+        if (!radioPins::distinct(p.sck, p.miso, p.mosi, p.cs, p.io0)) {
+            displayError("Set separate CC1101 GDO0 pin", true);
+            return false;
+        }
+    }
+#endif
     // use default frequency if no one is passed
     if (!frequency) frequency = bruceConfigPins.rfFreq;
 #if defined(FENRIR_EBYTE)
