@@ -16,7 +16,9 @@ Launcher must offer an application slot at least as large as the binary. The man
 
 Open Config / device information after boot and check `1.17-native1` and the source revision. Existing radio-pin settings are retained by Bruce: check them after upgrading, especially if this card/config came from another device.
 
-The 16 MB standalone build layout reserves 5 MiB for the application because the full custom 1.17 image exceeds the former 0x470000-byte slot. This layout is a build/standalone-flash setting: an app-only Launcher install does not replace your device's partition table.
+The 16 MB standalone build layout reserves 5 MiB for the application because the full custom 1.17 image exceeds the former 0x470000-byte slot. This is a build/standalone-flash layout, not a partition table embedded in the app-only binary. Launcher manages its own installation layout and may offer to resize or replace existing app slots; review its displayed choice before accepting.
+
+Launcher compatibility was checked against official tag `3.0.0` (`4b06de691df15b0fe6a9f09f56d1d107bbf32b12`): `src/sd_functions.cpp` accepts app-only images and `src/partition_install_layout.cpp` aligns app slots to 64 KiB. This is source verification, not a physical installation test.
 
 ## Included custom work
 
