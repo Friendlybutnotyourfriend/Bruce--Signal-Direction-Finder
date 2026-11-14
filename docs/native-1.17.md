@@ -12,9 +12,11 @@ Three separate **application-only** binaries are built, in this order:
 
 Copy the matching `*-Launcher.bin` onto the device's SD card. In Launcher, select that file and install/run it as an application. Keep your existing Launcher installed. These files are not merged flash dumps and must not be written to address zero.
 
-Launcher must offer an application slot at least as large as the binary. The manifest records exact size, source revision and SHA256. The build checks the upstream standalone app partition too; it cannot inspect the partition table on your physical device. Do not accept a truncated image if Launcher reports insufficient space.
+Launcher must offer an application slot at least as large as the binary. The manifest records exact size, source revision and SHA256. The build checks its standalone app partition too; it cannot inspect the partition table on your physical device. Do not accept a truncated image if Launcher reports insufficient space.
 
 Open Config / device information after boot and check `1.17-native1` and the source revision. Existing radio-pin settings are retained by Bruce: check them after upgrading, especially if this card/config came from another device.
+
+The 16 MB standalone build layout reserves 5 MiB for the application because the full custom 1.17 image exceeds the former 0x470000-byte slot. This layout is a build/standalone-flash setting: an app-only Launcher install does not replace your device's partition table.
 
 ## Included custom work
 

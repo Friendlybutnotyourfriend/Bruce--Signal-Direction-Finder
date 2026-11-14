@@ -7,9 +7,9 @@ from pathlib import Path
 import subprocess
 
 TARGETS = {
-    'ES3C28P': ('CBD-2.8-ES3C28P', 'boards/ES3C28P/partitions_16Mb.csv'),
+    'ES3C28P': ('CBD-2.8-ES3C28P', 'partitions_native_16Mb.csv'),
     'm5stack-cardputer': ('Cardputer-ADV', 'custom_8Mb.csv'),
-    'lilygo-t-embed-cc1101': ('T-Embed-CC1101', 'custom_16Mb.csv'),
+    'lilygo-t-embed-cc1101': ('T-Embed-CC1101', 'partitions_native_16Mb.csv'),
 }
 
 def main():
@@ -38,11 +38,23 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     name = f'Bruce-1.17-native1-{label}-Launcher.bin'
     (args.output / name).write_bytes(image)
+    dependencies = []
+    for library in sorted((root / '.pio/libdeps' / args.env).iterdir()):
+        if not library.is_dir():
+            continue
+        entry = {'directory': library.name}
+        metadata = library / '.piopm'
+        if metadata.exists():
+            entry['package'] = json.loads(metadata.read_text())
+        if (library / '.git').exists():
+            entry['git'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=library, text=True).strip()
+        dependencies.append(entry)
     digest = hashlib.sha256(image).hexdigest()
     identity.update(file=name, sha256=digest, bytes=len(image), app_partition_bytes=size,
-                    headroom_bytes=size-len(image), hardware_tested=False, image_type='application-only')
+                    headroom_bytes=size-len(image), hardware_tested=False, image_type='application-only', dependencies=dependencies)
     (args.output / f'{label}-manifest.json').write_text(json.dumps(identity, indent=2)+'\n')
     (args.output / f'{label}-SHA256.txt').write_text(f'{digest}  {name}\n')
+    (args.output / 'READ-ME.md').write_text((root / 'docs/native-1.17.md').read_text())
     print(f'{name}: {len(image)} bytes; partition headroom {size-len(image)} bytes')
 
 if __name__ == '__main__':

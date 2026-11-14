@@ -10,12 +10,9 @@ static void rf_brute_frequency() {
     int ind = 0;
     int arraySize = sizeof(subghz_frequency_list) / sizeof(subghz_frequency_list[0]);
     for (int i = 0; i < arraySize; i++) {
-#if defined(FENRIR_EBYTE)
-        if (subghz_frequency_list[i] < 425.0f || subghz_frequency_list[i] > 450.5f) continue;
-#endif
         String tmp = String(subghz_frequency_list[i], 2) + "MHz";
         options.push_back({tmp.c_str(), [=]() { brute_frequency = subghz_frequency_list[i]; }});
-        if (int(brute_frequency * 100) == int(subghz_frequency_list[i] * 100)) ind = options.size() - 1;
+        if (int(brute_frequency * 100) == int(subghz_frequency_list[i] * 100)) ind = i;
     }
     loopOptions(options, ind);
 }
