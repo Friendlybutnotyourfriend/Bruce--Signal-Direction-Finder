@@ -1014,7 +1014,8 @@ void huntTarget(const BleObservation &t) {
                     if (trailCount == 48) { for (unsigned i = 1; i < 48; ++i) trail[i-1] = trail[i]; --trailCount; }
                     trail[trailCount++] = s.stableRssi;
                 }
-                for (unsigned i = 1; i < trailCount; ++i) {
+                // The 135px Cardputer has no room below the status rows for a graph.
+                for (unsigned i = 1; tftHeight >= 170 && i < trailCount; ++i) {
                     const auto y = [](float v) { return 145 - static_cast<int>((std::max(-100.f, std::min(-30.f, v)) + 100) * 20 / 70); };
                     canvas.drawLine(10 + (i-1) * (tftWidth-20) / 47, y(trail[i-1]), 10 + i * (tftWidth-20) / 47, y(trail[i]), fresh ? bruceConfig.priColor : TFT_DARKGREY);
                 }

@@ -264,19 +264,21 @@ void drawResults(const BandResult results[BAND_COUNT]) {
     }
     tft.drawString(classification, 4, 31);
 
-    for (uint8_t i = 0; i < BAND_COUNT; i++) drawBandRow(BANDS[i], results[i], 50 + i * 22);
+    const bool compact = tftHeight < 160;
+    for (uint8_t i = 0; i < BAND_COUNT; i++)
+        drawBandRow(BANDS[i], results[i], (compact ? 44 : 50) + i * (compact ? 14 : 22));
 
     tft.setTextColor(TFT_LIGHTGREY, bruceConfig.bgColor);
     if (evidenceCount > 0) {
         String peak = "Peak " + String(results[strongest].peakFrequency, 2) + " MHz";
         peak += " spread " + String(results[strongest].repeatSpread) + " dB";
-        tft.drawString(peak, 4, 119);
+        tft.drawString(peak, 4, compact ? 88 : 119);
     } else {
-        tft.drawString("Try a nearby known transmitter", 4, 119);
+        tft.drawString("Try a nearby known transmitter", 4, compact ? 88 : 119);
     }
 
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-    tft.drawString("Observed response only - not resonance", 4, 134);
+    tft.drawString("Ambient response; not resonance", 4, compact ? 101 : 134);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.drawString("SEL: rescan     ESC: back", 4, tftHeight - 13);
 }

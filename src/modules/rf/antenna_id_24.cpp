@@ -88,7 +88,7 @@ bool waitForStart() {
     drawHeader("ESP32 2.4 GHz survey");
     tft.setTextColor(TFT_LIGHTGREY, bruceConfig.bgColor);
     tft.drawString("Uses ESP32 WiFi/BLE antenna path", 4, 34);
-    tft.drawString("T-Embed: attach to S3 U.FL path", 4, 47);
+    tft.drawString("Uses this board's WiFi/BLE antenna", 4, 47);
     tft.drawString("WiFi connection will be closed", 4, 60);
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
     tft.drawString("Not the CC1101 SMA - not SWR", 4, 78);
@@ -316,8 +316,9 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
     tft.setTextColor((wifi.evidence || ble.evidence) ? TFT_WHITE : TFT_YELLOW, bruceConfig.bgColor);
     tft.drawString(classification, 4, 31);
 
+    const bool compact = tftHeight < 160;
     for (uint8_t i = 0; i < WIFI_GROUPS; i++) {
-        drawWifiGroup(WIFI_GROUP_DEFS[i], wifi.groups[i], 50 + i * 17);
+        drawWifiGroup(WIFI_GROUP_DEFS[i], wifi.groups[i], (compact ? 42 : 50) + i * (compact ? 12 : 17));
     }
 
     tft.setTextColor(resultColor(wifi.evidence, wifi.score), bruceConfig.bgColor);
@@ -325,15 +326,15 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
     if (wifi.peakChannel) {
         wifiLine += " peak " + String(channelFrequency(wifi.peakChannel)) + "MHz";
     }
-    tft.drawString(wifiLine, 4, 104);
+    tft.drawString(wifiLine, 4, compact ? 79 : 104);
 
     tft.setTextColor(resultColor(ble.evidence, ble.score), bruceConfig.bgColor);
     const String bleLine =
         "BLE " + String(ble.uniqueDevices) + " IDs " + String(ble.peakRssi) + "dBm";
-    tft.drawString(bleLine, 4, 119);
+    tft.drawString(bleLine, 4, compact ? 91 : 119);
 
     tft.setTextColor(TFT_YELLOW, bruceConfig.bgColor);
-    tft.drawString("Ambient RSSI; not antenna gain or match", 4, 136);
+    tft.drawString("Ambient RSSI; not gain or match", 4, compact ? 104 : 136);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.drawString("SEL: rescan     ESC: back", 4, tftHeight - 13);
 }
