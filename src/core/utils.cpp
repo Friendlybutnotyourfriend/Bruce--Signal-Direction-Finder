@@ -169,7 +169,7 @@ void showDeviceInfo() {
     ScrollableTextArea area = ScrollableTextArea("DEVICE INFO");
 
     area.addLine("Bruce Version: " + String(BRUCE_VERSION));
-    area.addLine("Board: " + String(DEVICE_NAME));
+    area.addLine("Board: " + String(BRUCE_BOARD_NAME));
     area.addLine("Source: " + String(GIT_COMMIT_HASH));
     area.addLine("EEPROM size: " + String(EEPROMSIZE));
     area.addLine("");

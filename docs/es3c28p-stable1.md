@@ -17,11 +17,11 @@ destination slot must also be large enough; this package does not change its par
 
 ## Changes
 
-- Embed source revision in About and Sentinel/BLE recon/RF Lab logs.
+- Embed source revision in About and Sentinel/BLE recon/RF Lab logs and antenna comparison CSV files.
 - Show minimum free heap, largest allocation and task stack headroom in About.
 - Reject CBD radio configurations with overlapping/unassigned SPI/control pins.
-- RMT capture uses a 3 us input glitch filter and matching 128-symbol hardware
-  and software capacity. Full captures are excluded and counted as clipped.
+- RMT capture uses a 3 us input glitch filter and a 128-symbol software buffer
+  backed by at least 128 hardware symbols. Full captures are excluded and counted as clipped.
   Pulse histogram still excludes durations below 20 us; this is separate from
   the hardware filter. Classic ESP32 consumes two 64-symbol memory blocks.
 - RF Lab verifies frequency register readback, records nominal programmed base

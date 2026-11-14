@@ -163,7 +163,7 @@ void blackBox() {
     delay(20);
     JsonDocument header;
     header["schema"] = "bruce.rf-blackbox.v1";
-    header["board"] = DEVICE_NAME;
+    header["board"] = BRUCE_BOARD_NAME;
     header["firmware"] = BRUCE_VERSION;
     header["git"] = GIT_COMMIT_HASH;
     header["clock"] = "uptime_ms; wraps at 2^32; not UTC";
@@ -318,7 +318,7 @@ void saveCandidate(const Candidate &c) {
     File f = createNewFile(fs, "/RF-Lab", sessionName("profile"));
     JsonDocument doc;
     doc["schema"] = "bruce.rx-profile.v1";
-    doc["board"] = DEVICE_NAME;
+    doc["board"] = BRUCE_BOARD_NAME;
     doc["firmware"] = BRUCE_VERSION;
     doc["git"] = GIT_COMMIT_HASH;
     doc["identification"] = "unknown; receiver candidate only";

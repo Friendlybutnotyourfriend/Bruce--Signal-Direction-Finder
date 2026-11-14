@@ -170,7 +170,7 @@ void rf_antenna_compare(bool ble) {
         if (file) {
             bool ok = true;
             if (!exists) ok = file.println("uptime_ms,path,frequency_mhz,beacon,reference_before_dbm,candidate_dbm,reference_after_dbm,relative_db,drift_db,uncertainty_db,reliable,board,firmware,git") > 0;
-            const String row = String(millis()) + "," + (ble ? "ESP32_BLE,2400-2483.5," : "CC1101," + String(frequency, 3) + ",") + (ble ? beacon : "") + "," + String(a, 1) + "," + String(b, 1) + "," + String(c, 1) + "," + String(result.delta, 1) + "," + String(result.drift, 1) + "," + String(result.uncertainty, 1) + "," + (result.reliable ? "true" : "false") + "," + DEVICE_NAME + "," + BRUCE_VERSION + "," + GIT_COMMIT_HASH;
+            const String row = String(millis()) + "," + (ble ? "ESP32_BLE,2400-2483.5," : "CC1101," + String(frequency, 3) + ",") + (ble ? beacon : "") + "," + String(a, 1) + "," + String(b, 1) + "," + String(c, 1) + "," + String(result.delta, 1) + "," + String(result.drift, 1) + "," + String(result.uncertainty, 1) + "," + (result.reliable ? "true" : "false") + "," + BRUCE_BOARD_NAME + "," + BRUCE_VERSION + "," + GIT_COMMIT_HASH;
             saved = ok && file.println(row) == row.length() + 2;
             file.flush(); file.close();
         }

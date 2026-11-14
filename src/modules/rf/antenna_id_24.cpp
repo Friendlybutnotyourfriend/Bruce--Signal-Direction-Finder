@@ -339,7 +339,7 @@ void drawResults(const WifiResult &wifi, const BleResult &ble) {
 }
 
 void printResults(const WifiResult &wifi, const BleResult &ble) {
-    Serial.printf("[ANTENNA_ID_24] board=%s firmware=%s git=%s; score is heuristic, not percent\n", DEVICE_NAME, BRUCE_VERSION, GIT_COMMIT_HASH);
+    Serial.printf("[ANTENNA_ID_24] board=%s firmware=%s git=%s; score is heuristic, not percent\n", BRUCE_BOARD_NAME, BRUCE_VERSION, GIT_COMMIT_HASH);
     Serial.println("[ANTENNA_ID_24] wifi_group,peak_channel,peak_mhz,peak_dbm,passes,observations");
     for (uint8_t i = 0; i < WIFI_GROUPS; i++) {
         const WifiGroupResult &group = wifi.groups[i];
