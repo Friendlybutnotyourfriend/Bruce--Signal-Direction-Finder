@@ -2,7 +2,10 @@
 #include "core/display.h"
 #include "core/settings.h"
 #include "core/utils.h"
+#include "modules/radio_control/radio_control.h"
+#include "modules/rf/antenna_id.h"
 #include "modules/rf/record.h"
+#include "modules/rf_lab/rf_lab.h"
 #include "modules/rf/rf_bruteforce.h"
 #include "modules/rf/rf_jammer.h"
 #include "modules/rf/rf_listen.h"
@@ -23,6 +26,7 @@ void RFMenu::optionsMenu() {
 #endif
         {"Spectrum",        rf_spectrum               },
 #if !defined(LITE_VERSION)
+        {"Antenna ID",      rf_antenna_id             },
         {"RSSI Spectrum",   rf_CC1101_rssi            }, // @Pirata
         {"SquareWave Spec", rf_SquareWave             }, // @Pirata
         {"Spectogram",      rf_waterfall              }, // dev_eclipse
@@ -31,6 +35,8 @@ void RFMenu::optionsMenu() {
 #endif
         {"Bruteforce",      rf_bruteforce             }, // dev_eclipse
         {"Jammer",          [=]() { RFJammer(true); } },
+        {"Radio Control",   []() { RadioControl::ccMenu(); }},
+        {"RF Black Box / Finder", rfLabMenu},
 #endif
         {"Config",          [this]() { configMenu(); }},
     };

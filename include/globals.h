@@ -23,6 +23,12 @@
 #include <functional>
 #include <io_expander/io_expander.h> // ./lib/HAL
 #include <vector>
+
+#ifdef DEVICE_NAME
+#define BRUCE_BOARD_NAME DEVICE_NAME
+#else
+#define BRUCE_BOARD_NAME "unknown-board"
+#endif
 extern io_expander ioExpander;
 
 #if defined(HAS_RTC)

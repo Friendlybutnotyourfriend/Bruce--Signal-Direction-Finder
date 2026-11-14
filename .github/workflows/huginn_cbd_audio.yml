@@ -1,0 +1,76 @@
+name: HUGINN CBD Audio Build
+
+on:
+  push:
+    branches:
+      - agent/huginn-cbd-audio
+      - agent/huginn-cbd-audio-fix
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - agent/ble-field-evolution
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test existing recon engine
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -g tests/recon_core_test.cpp -o /tmp/recon-test
+          /tmp/recon-test
+          g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
+          RECON_ENGINE=/tmp/recon-replay python -m unittest discover -s tests -p 'test_*.py'
+
+  cbd:
+    name: Build ES3C28P
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib libc6-dev-i386
+          python -m pip install --upgrade pip
+          pip install platformio requests esptool intelhex
+      - name: Build ES3C28P
+        run: |
+          set -o pipefail
+          platformio run -e ES3C28P 2>&1 | tee build-ES3C28P.log
+      - name: Check source tree
+        run: git diff --exit-code
+      - name: Package Launcher-only image
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          parts = Path(".pio/build/ES3C28P/partitions.bin").read_bytes()
+          app = Path(".pio/build/ES3C28P/firmware.bin").read_bytes()
+          out = bytearray(0x10000 + len(app))
+          out[0x8000:0x8000 + len(parts)] = parts
+          out[0x10000:] = app
+          path = Path("HUGINN-ES3C28P-Audio-Launcher.bin")
+          path.write_bytes(out)
+          print("Launcher image:", path, len(out), "SHA256:", hashlib.sha256(out).hexdigest())
+          print("Bootloader included: NO")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HUGINN-ES3C28P-Audio-Launcher
+          path: HUGINN-ES3C28P-Audio-Launcher.bin
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HUGINN-CBD-Audio-build-log
+          path: build-ES3C28P.log
+          if-no-files-found: ignore
+          retention-days: 14

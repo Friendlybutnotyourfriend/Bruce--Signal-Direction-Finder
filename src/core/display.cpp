@@ -1388,6 +1388,10 @@ void drawMainBorder(bool clear) {
 #if defined(HAS_TOUCH)
     TouchFooter();
 #endif
+    // Body text after a menu border starts from the small font. Status drawing can
+    // leave a larger font selected.
+    setTftDisplay(12, 12, bruceConfig.priColor, 1, bruceConfig.bgColor);
+    tft.setTextFont(1);
 }
 
 void drawMainBorderWithTitle(const String &title, bool clear) {

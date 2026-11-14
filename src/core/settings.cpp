@@ -768,7 +768,11 @@ void setRFFreqMenu() {
     if (freq_str == "\x1B") return;
     if (freq_str.length() > 1) {
         result = freq_str.toFloat();          // returns 0 if not valid
+#if defined(FENRIR_EBYTE)
+        if (result >= 425.0f && result <= 450.5f) {
+#else
         if (result >= 280 && result <= 928) { // TODO: check valid freq according to current module?
+#endif
             bruceConfigPins.setRfFreq(result);
             return;
         }

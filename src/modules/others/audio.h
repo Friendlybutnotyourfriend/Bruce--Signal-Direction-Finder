@@ -33,7 +33,7 @@ bool tts(String text, PlaybackMode mode = PLAYBACK_BLOCKING);
 bool isAudioFile(const String &filePath);
 void playTone(
     unsigned int frequency, unsigned long duration = 0UL, short waveType = 0,
-    PlaybackMode mode = PLAYBACK_BLOCKING
+    PlaybackMode mode = PLAYBACK_BLOCKING, bool allowKeyCancel = true
 );
 void _tone(unsigned int frequency, unsigned long duration = 0UL, PlaybackMode mode = PLAYBACK_BLOCKING);
 

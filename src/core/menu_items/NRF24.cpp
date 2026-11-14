@@ -2,6 +2,7 @@
 #include "core/display.h"
 #include "core/utils.h"
 #include "modules/NRF24/nrf_common.h"
+#include "modules/radio_control/radio_control.h"
 #include "modules/NRF24/nrf_jammer.h"
 #include "modules/NRF24/nrf_mousejack.h"
 #include "modules/NRF24/nrf_spectrum.h"
@@ -9,6 +10,7 @@
 void NRF24Menu::optionsMenu() {
     options.clear();
     options.push_back({"Information", nrf_info});
+    options.push_back({"Radio Control", []() { RadioControl::nrfMenu(); }});
     options.push_back({"Spectrum", nrf_spectrum});
     #if !defined(LITE_VERSION)
     options.push_back({"MouseJack", nrf_mousejack});
