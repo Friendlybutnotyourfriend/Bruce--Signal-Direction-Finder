@@ -8,11 +8,13 @@
 #include "modules/df/ble_recon_v3.h"
 #if !defined(LITE_VERSION)
 #include "modules/ble/BLE_Suite.h"
-#include "modules/sentinel/sentinel.h"
 #else
 #include "modules/ble/ble_sniffer.h"
 #endif
 #include <globals.h>
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
+#include "modules/sentinel/sentinel.h"
+#endif
 
 void BleMenu::optionsMenu() {
     options.clear();
@@ -29,10 +31,6 @@ void BleMenu::optionsMenu() {
 #if !defined(LITE_VERSION)
     options.push_back({"Media Cmds", [=]() { MediaCommands(hid_ble, true); }});
     options.push_back({"BLE Scan", ble_scan});
-    options.push_back({"Sentinel", sentinel_menu});
-    options.push_back({"BLE Hunter", []() { bleHunterV3(); }});
-    options.push_back({"BLE Sniffer", bleSnifferV3});
-    options.push_back({"BLE Sessions", bleSessionReview});
     options.push_back({"iBeacon", [=]() {
                            ibeacon("Bruce", "e4c159a0-8c82-11e6-bdf4-0800200c9a66", 0x004C);
                        }});
@@ -46,7 +44,15 @@ void BleMenu::optionsMenu() {
     options.push_back({"Ninebot", [=]() { BLENinebot(); }});
     options.push_back({"Presenter mode", [=]() { PresenterMode(hid_ble, true); }});
 #else
+#if !defined(FENRIR_RECON_LITE)
     options.push_back({"BLE Sniffer", [=]() { BLE_SnifferMenu(); }});
+#endif
+#endif
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
+    options.push_back({"Sentinel", sentinel_menu});
+    options.push_back({"BLE Hunter", []() { bleHunterV3(); }});
+    options.push_back({"BLE Sniffer", bleSnifferV3});
+    options.push_back({"BLE Sessions", bleSessionReview});
 #endif
     addOptionToMainMenu();
 

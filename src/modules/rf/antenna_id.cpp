@@ -337,7 +337,7 @@ bool runSurvey(BandResult results[BAND_COUNT]) {
 } // namespace
 
 void rf_antenna_id() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
     int selectedAction = 0;
     options = {
         {"Sub-GHz CC1101", [&selectedAction]() { selectedAction = 1; }},
@@ -361,7 +361,7 @@ void rf_antenna_id() {
 }
 
 void rf_antenna_id_subghz() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
     if (bruceConfigPins.rfModule != CC1101_SPI_MODULE) {
         displayError("Sub-GHz ID requires CC1101", true);
         return;

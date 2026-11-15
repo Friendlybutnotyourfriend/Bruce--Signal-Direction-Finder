@@ -16,6 +16,10 @@
 #include "modules/rf/rf_waterfall.h"
 #include "modules/rf/rf_protopirate.h"
 
+#if defined(FENRIR_EBYTE)
+extern void fenrirRssiScan();
+#endif
+
 void RFMenu::optionsMenu() {
     options = {
         {"Scan/copy",       [=]() { RFScan(); }       },
@@ -26,7 +30,6 @@ void RFMenu::optionsMenu() {
 #endif
         {"Spectrum",        rf_spectrum               },
 #if !defined(LITE_VERSION)
-        {"Antenna ID",      rf_antenna_id             },
         {"RSSI Spectrum",   rf_CC1101_rssi            }, // @Pirata
         {"SquareWave Spec", rf_SquareWave             }, // @Pirata
         {"Spectogram",      rf_waterfall              }, // dev_eclipse
@@ -35,8 +38,14 @@ void RFMenu::optionsMenu() {
 #endif
         {"Bruteforce",      rf_bruteforce             }, // dev_eclipse
         {"Jammer",          [=]() { RFJammer(true); } },
-        {"Radio Control",   []() { RadioControl::ccMenu(); }},
+#endif
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
+        {"Antenna ID", rf_antenna_id},
+        {"Radio Control", []() { RadioControl::ccMenu(); }},
         {"RF Black Box / Finder", rfLabMenu},
+#endif
+#if defined(FENRIR_EBYTE)
+        {"E07 RSSI Scan", fenrirRssiScan},
 #endif
         {"Config",          [this]() { configMenu(); }},
     };
