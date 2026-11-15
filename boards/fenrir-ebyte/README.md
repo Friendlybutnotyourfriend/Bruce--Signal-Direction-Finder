@@ -1,61 +1,39 @@
-# Fenrir — native Bruce 1.17
+# Fenrir — standalone Bruce 1.17
 
-Target: ESP32-2432S028R-PLUS-RF / ZLX-ESP32-4, classic ESP32-WROOM-32E/UE-N4,
-4 MB flash, ST7789 240×320 BGR non-inverted display. Not the ILI9341 E32R28T.
+Target: ESP32-2432S028R-PLUS-RF, matching your board photo.
+Classic ESP32, 4 MB flash, ST7789 display, E07/E01 radio daughterboard.
+No Launcher is required or included.
 
-Native 1.17 touch HAL and calibration, fixed integrated radio/SD pins,
-GPIO36 touch wake (GPIO0 is E07 RX enable), battery ADC34 divider 2:1.
-E07-433M20S: CS27, GDO0 22, GDO2 35, RX enable0, TX enable4;
-E01-2G4M27SX: CS26, CE16; SD CS5; all share SCK18/MISO19/MOSI23.
-Touch uses separate software SPI SCK25/MISO39/MOSI32/CS33/IRQ36.
-PN532 CS17 stays deselected when unused. No speaker or microphone.
-E07 tools are limited to 425–450.5 MHz.
+## Files
+Bruce-1.17-Fenrir-Full-USB.bin
+  Complete standalone image: bootloader, partition table and firmware.
+  Flash at offset 0x0 using a compatible ESP32 USB flasher.
+  Back up existing settings/internal files first: this writes across NVS and
+  installs the standalone partition layout.
 
-## Images
+Bruce-1.17-Fenrir-Full-App.bin
+  Application-only update. Flash at 0x10000 ONLY if the existing partition
+  table matches: factory app offset 0x10000, size 0x3C0000; filesystem offset
+  0x3D0000, size 0x30000. This is the saved Fenrir standalone layout.
+  The app-only file does not replace the bootloader, NVS or partition table.
+  Do not flash this application-only file at 0x0.
 
-- Launcher-App.bin: application-only, reduced upstream Lite build with the custom
-  BLE Hunter/Sniffer/Sessions, Sentinel, Antenna ID, Radio Control and RF Black Box /
-  Receive Profile Finder retained. Upstream Lite exclusions still apply to other
-  features (including scripting, several NFC/network and advanced RF tools).
-  TV-B-Gone is also omitted: this board has no wired IR transmitter.
-  Install through compatible Launcher 3.0 from SD. Maximum app size 0x290000 bytes.
-  The 4 MB budget reserves 0x160000 for Launcher/header and at least 0x10000 for
-  settings. Back up existing internal files before resizing/replacing partitions;
-  the installer must provide a sufficiently large app slot. Custom logs use SD.
-  The compiler CSV describes a standalone layout; app-only installation uses
-  Launcher's actual partition table, not the CSV's filesystem size.
-- Full-USB.bin: standalone build with JavaScript interpreter excluded to fit 4 MB;
-  custom tools retained. Merged bootloader/partition/app; USB flash at 0x0.
-  This replaces Launcher and its partition layout. Back up files and settings first.
-- Full-App.bin: full application only, intended for the standalone full partition
-  at 0x10000, NOT the 4 MB Launcher layout.
+## Features And Limits
+The custom BLE Hunter/Sniffer, sessions/review, Sentinel, Antenna ID,
+Radio Control and RF Black Box/Receive Profile Finder are retained.
+The JavaScript interpreter is excluded to fit the existing 4 MB layout.
+This standalone image retains TV-B-Gone; the experimental Launcher reductions
+are not applied. No speaker/microphone is wired on this board.
 
-Only files that pass size and embedded source identity checks are packaged.
-Compile and host checks do not establish hardware compatibility: verify boot,
-touch calibration/rotation, brightness, battery, SD logging, both radios, and
-sleep/wake on the actual board. No physical Fenrir testing has been performed.
+## Validation
+Firmware source commit: 65144532022a97cf87df10f1a800b7437b2d9259
+Application: 3,846,416 bytes; 85,744 bytes spare in its partition.
+Host regressions and compilation passed. ESP32 chip ID, application checksum,
+embedded SHA-256, source identity, downloaded file hashes and merged offsets
+were verified. See the manifest and .sha256 files.
+No physical testing of this new Fenrir build has been performed.
 
-## Launcher 3.0 installation on 4 MB
-
-Back up the current firmware/settings/internal files before changing partitions.
-Keep Launcher's protected partitions intact. This image is application-only.
-
-1. In **PMan (Partition Manager)**, ensure there is a data partition named
-   `spiffs`, size **0x10000 (64 KiB)**, and an app slot or contiguous space of
-   **0x290000 (2,686,976 bytes / 2.5625 MiB)**. A larger existing settings
-   partition may need backing up and resizing/recreating.
-2. If `spiffs` is missing, select a suitable FREE range, **Add SPIFFS**, retain
-   the label `spiffs`, set its size to 0x10000 with the range controls, then
-   **Apply Changes**. Preserve one contiguous 0x290000 app range.
-3. Install `Bruce-1.17-Fenrir-Launcher-App.bin` from SD into the app slot.
-   Do not select the Full-App or Full-USB image for this Launcher layout.
-4. Complete touch calibration if prompted, then check boot, touch/rotation,
-   brightness, SD recording, both radios, settings persistence and sleep/wake.
-
-The 64 KiB internal filesystem is for settings and small files; use SD for logs
-and recordings. If the installed Launcher itself or other protected partitions
-use more than the reserved 0x160000, this layout will not fit; use the standalone
-USB image or a compatible smaller Launcher build instead of forcing an install.
-
-The Full-USB image is flashed at 0x0 and replaces Launcher. Its JavaScript
-interpreter is excluded to fit 4 MB; the custom receive tools are included.
+## First Boot
+Complete touch calibration if prompted. Check touch/rotation, brightness,
+battery reading, SD logging, E07 receive, nRF24 spectrum, settings persistence,
+and sleep/wake. The E07 uses GPIO0 for RX enable; touch IRQ36 is the wake input.
