@@ -17,8 +17,13 @@ E07 tools are limited to 425–450.5 MHz.
   BLE Hunter/Sniffer/Sessions, Sentinel, Antenna ID, Radio Control and RF Black Box /
   Receive Profile Finder retained. Upstream Lite exclusions still apply to other
   features (including scripting, several NFC/network and advanced RF tools).
-  Install through compatible Launcher from SD. Maximum app size 0x270000 bytes;
-  actual installation also requires a sufficiently large free slot.
+  TV-B-Gone is also omitted: this board has no wired IR transmitter.
+  Install through compatible Launcher 3.0 from SD. Maximum app size 0x290000 bytes.
+  The 4 MB budget reserves 0x160000 for Launcher/header and at least 0x10000 for
+  settings. Back up existing internal files before resizing/replacing partitions;
+  the installer must provide a sufficiently large app slot. Custom logs use SD.
+  The compiler CSV describes a standalone layout; app-only installation uses
+  Launcher's actual partition table, not the CSV's filesystem size.
 - Full-USB.bin: standalone build with JavaScript interpreter excluded to fit 4 MB;
   custom tools retained. Merged bootloader/partition/app; USB flash at 0x0.
   This replaces Launcher and its partition layout. Back up files and settings first.

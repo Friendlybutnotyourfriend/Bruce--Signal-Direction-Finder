@@ -1,0 +1,6 @@
+# Launcher app budget: 4 MB minus 0x160000 Launcher/header and 0x10000 settings.
+# This table is for compilation. Launcher installs the app into its own partition table.
+# Name, Type, SubType, Offset, Size, Flags
+nvs, data, nvs, 0x9000, 0x6000,
+factory, app, factory, 0x10000, 0x290000,
+spiffs, data, spiffs, 0x2A0000, 0x160000,

@@ -15,7 +15,9 @@ void IRMenu::optionsMenu() {
     M5.Power.setExtOutput(true); // ENABLE 5V OUTPUT
 #endif
     options = {
+#if !defined(FENRIR_RECON_LITE)
         {"TV-B-Gone", StartTvBGone              },
+#endif
         {"Custom IR", otherIRcodes              },
         {"IR Read",   [=]() { IrRead(); }       },
 #if !defined(LITE_VERSION)

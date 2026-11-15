@@ -20,9 +20,11 @@ if len(app) < 256 or app[0] != 0xe9 or int.from_bytes(app[12:14], 'little') != 0
 if identity['build_id'].encode() not in app or identity['version'].encode() not in app:
     raise SystemExit('Embedded identity mismatch')
 launcher = args.env.startswith('LAUNCHER_')
-limit = 0x270000 if launcher else 0x3c0000
+limit = 0x290000 if launcher else 0x3c0000
 if len(app) > limit:
     raise SystemExit(f'App exceeds partition: {len(app)} > {limit}')
+if launcher and 0x160000 + ((len(app) + 0xffff) & ~0xffff) + 0x10000 > 0x400000:
+    raise SystemExit('Launcher plus aligned app and minimum settings storage exceeds 4 MB')
 out = root / '.pio/release'
 out.mkdir(parents=True, exist_ok=True)
 variant = 'Launcher' if launcher else 'Full'
