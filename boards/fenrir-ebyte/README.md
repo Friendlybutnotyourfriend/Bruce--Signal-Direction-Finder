@@ -34,3 +34,28 @@ Only files that pass size and embedded source identity checks are packaged.
 Compile and host checks do not establish hardware compatibility: verify boot,
 touch calibration/rotation, brightness, battery, SD logging, both radios, and
 sleep/wake on the actual board. No physical Fenrir testing has been performed.
+
+## Launcher 3.0 installation on 4 MB
+
+Back up the current firmware/settings/internal files before changing partitions.
+Keep Launcher's protected partitions intact. This image is application-only.
+
+1. In **PMan (Partition Manager)**, ensure there is a data partition named
+   `spiffs`, size **0x10000 (64 KiB)**, and an app slot or contiguous space of
+   **0x290000 (2,686,976 bytes / 2.5625 MiB)**. A larger existing settings
+   partition may need backing up and resizing/recreating.
+2. If `spiffs` is missing, select a suitable FREE range, **Add SPIFFS**, retain
+   the label `spiffs`, set its size to 0x10000 with the range controls, then
+   **Apply Changes**. Preserve one contiguous 0x290000 app range.
+3. Install `Bruce-1.17-Fenrir-Launcher-App.bin` from SD into the app slot.
+   Do not select the Full-App or Full-USB image for this Launcher layout.
+4. Complete touch calibration if prompted, then check boot, touch/rotation,
+   brightness, SD recording, both radios, settings persistence and sleep/wake.
+
+The 64 KiB internal filesystem is for settings and small files; use SD for logs
+and recordings. If the installed Launcher itself or other protected partitions
+use more than the reserved 0x160000, this layout will not fit; use the standalone
+USB image or a compatible smaller Launcher build instead of forcing an install.
+
+The Full-USB image is flashed at 0x0 and replaces Launcher. Its JavaScript
+interpreter is excluded to fit 4 MB; the custom receive tools are included.
