@@ -114,7 +114,7 @@ public:
     }
 };
 
-void draw(const Recorder &recorder, size_t age, const char *status) {
+void drawBlackBox(const Recorder &recorder, size_t age, const char *status) {
     const Frame *f = recorder.ago(age);
     tft.fillScreen(bruceConfig.bgColor);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
@@ -145,6 +145,7 @@ void draw(const Recorder &recorder, size_t age, const char *status) {
 void nrf_blackbox() {
     cleanlyStopWebUiForWiFiFeature();
     stopBLEStack();
+    if (BLEDevice::isInitialized()) { displayError("BLE stop failed; retry", true); return; }
     wifiDisconnect(); // Avoid measuring this board's own 2.4 GHz transmissions.
     std::unique_ptr<NrfBlackBox::Recorder> recorder(new (std::nothrow) NrfBlackBox::Recorder(millis()));
     if (!recorder) { displayError("Not enough RAM for recorder", true); return; }
@@ -171,7 +172,7 @@ void nrf_blackbox() {
             if (!NRFradio.isChipConnected()) { displayError("nRF disconnected; recording stopped", true); break; }
         }
         if (recorder->due(now)) log.record(recorder->finish(now), sequence++);
-        if (uint32_t(now - lastDraw) >= 500) { draw(*recorder, age, log.status); lastDraw = now; }
+        if (uint32_t(now - lastDraw) >= 500) { drawBlackBox(*recorder, age, log.status); lastDraw = now; }
         vTaskDelay(pdMS_TO_TICKS(1));
     }
     if (recorder->current.hasSamples()) log.record(recorder->finish(millis()), sequence);
