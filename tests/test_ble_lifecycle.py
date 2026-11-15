@@ -35,7 +35,8 @@ struct Scan { void stop(){assert(false);} void clearResults(){assert(false);} };
 static Scan *pBLEScan=nullptr;
 static void *pServer=nullptr,*pService=nullptr,*pTxCharacteristic=nullptr,*pRxCharacteristic=nullptr;
 static bool deviceConnected=false,oldDeviceConnected=false,bleDataTransferEnabled=false,BLEConnected=false;
-struct Hid { void end(){} }; static Hid *hid_ble=nullptr; int activeBLEInstances=0;
+static unsigned hidDeletes=0;
+struct Hid { void end(); ~Hid(); }; static Hid *hid_ble=nullptr; int activeBLEInstances=0;
 struct SerialType { void println(const char*){} } Serial;
 void displayError(const char*,bool){}
 void cleanlyStopWebUiForWiFiFeature(){}
@@ -52,6 +53,12 @@ struct BLEDevice {
  static bool init(const std::string&){++initCalls;controller=ESP_BT_CONTROLLER_STATUS_ENABLED;active=initOk;return initOk;}
  static bool deinit(bool){if(!deinitOk)return false;active=false;controller=ESP_BT_CONTROLLER_STATUS_IDLE;return true;}
 }; bool BLEDevice::active=false;
+bool bruceBleDeinit(bool);
+void Hid::end(){bruceBleDeinit(true);}
+Hid::~Hid(){assert(!BLEDevice::active);++hidDeletes;}
+using HIDInterface=Hid;
+using BleKeyboard=Hid;
+using NimBLEDevice=BLEDevice;
 struct BLEStateManager {static void resetState(){++resets;}};
 static void (*shutdownHook)()=nullptr;
 void hook(){++hookCalls;assert(!BLEDevice::active);}
@@ -59,6 +66,8 @@ void hook(){++hookCalls;assert(!BLEDevice::active);}
         bodies = '\n'.join(function(source, x) for x in [
             'void bruceBleShutdownHook(', 'bool bruceBleDeinit(',
             'void stopBLEStack(', 'bool bruceBleInit('])
+        bodies += function((ROOT / 'src/modules/badusb_ble/ducky_typer.cpp').read_text(),
+                           'void cleanupDuckyBLE(')
         tests = r'''
 int main(){
  budget=false;
@@ -78,7 +87,18 @@ int main(){
  assert(!bruceBleDeinit(true) && BLEDevice::active && pBLEScan!=nullptr);
  deinitOk=true;assert(bruceBleDeinit(true));
  assert(bruceBleInit("another restart"));
- puts("BLE lifecycle failure, reuse, ownership and restart tests passed");
+ hid_ble=new Hid;activeBLEInstances=1;deinitOk=false;
+ stopBLEStack();
+ assert(hid_ble && hidDeletes==0 && activeBLEInstances==1);
+ deinitOk=true;stopBLEStack();
+ assert(!hid_ble && hidDeletes==1 && activeBLEInstances==0);
+ assert(bruceBleInit("HID cleanup"));
+ hid_ble=new Hid;activeBLEInstances=1;deinitOk=false;
+ cleanupDuckyBLE(hid_ble);
+ assert(hid_ble && hidDeletes==1 && activeBLEInstances==1);
+ deinitOk=true;cleanupDuckyBLE(hid_ble);
+ assert(!hid_ble && hidDeletes==2 && activeBLEInstances==0);
+ puts("BLE lifecycle failure, reuse, HID ownership and restart tests passed");
 }
 '''
         with tempfile.TemporaryDirectory() as d:

@@ -60,57 +60,15 @@ void setBleMac(const uint8_t *mac) {
 // ============================================================================
 
 void cleanupDuckyBLE(HIDInterface *&hid) {
-    if (hid) {
-        BleKeyboard *bleKb = static_cast<BleKeyboard *>(hid);
-
-        // Release all keys first (clean state)
-        bleKb->releaseAll();
-        delay(20);
-
-        // Stop advertising
-        if (NimBLEDevice::getAdvertising()) {
-            NimBLEDevice::getAdvertising()->stop();
-            Serial.println("[cleanupDuckyBLE] Advertising stopped");
-        }
-        delay(50);
-
-        // If this was the active instance, clear the pointer
-        if (hid_ble == hid) {
-            hid_ble = nullptr;
-            Serial.println("[cleanupDuckyBLE] Cleared hid_ble pointer");
-        }
-
-        // Decrement active instance count
-        if (activeBLEInstances > 0) {
-            activeBLEInstances--;
-            Serial.printf("[cleanupDuckyBLE] Active BLE instances: %d\n", activeBLEInstances);
-        }
-
-        // CRITICAL: Only call end() if this is the LAST instance
-        // end() deinits the BLE stack, so we only want to do it once
-        if (activeBLEInstances == 0) {
-            // Last instance - call end() to fully clean up
-            bleKb->end();
-            Serial.println("[cleanupDuckyBLE] Last instance: BleKeyboard::end() called (deinits BLE)");
-        } else {
-            // Not the last instance - just delete the object without calling end()
-            Serial.println("[cleanupDuckyBLE] Not last instance: deleting HID without end()");
-        }
-
-        // Delete the wrapper object
-        delete hid;
-        hid = nullptr;
-        Serial.println("[cleanupDuckyBLE] hid deleted");
-    }
-
-    // Only deinit BLE when NO instances are left (safety)
-    if (activeBLEInstances == 0 && NimBLEDevice::isInitialized()) {
-        Serial.println("[cleanupDuckyBLE] Last instance, ensuring BLE deinit...");
-        bruceBleDeinit();
-        delay(50);
-        Serial.println("[cleanupDuckyBLE] BLE stack deinitialized");
-    }
-
+    if (!hid) return;
+    BleKeyboard *bleKb = static_cast<BleKeyboard *>(hid);
+    bleKb->end();
+    // Live SDK callbacks still reference this wrapper if shutdown failed.
+    if (NimBLEDevice::isInitialized()) return;
+    if (hid_ble == bleKb) hid_ble = nullptr;
+    hid = nullptr;
+    if (activeBLEInstances > 0) --activeBLEInstances;
+    delete bleKb; // hid may alias hid_ble, which has already been cleared.
     BLEConnected = false;
 }
 

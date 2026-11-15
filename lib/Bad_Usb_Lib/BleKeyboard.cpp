@@ -206,16 +206,9 @@ void BleKeyboard::begin(const uint8_t *layout, uint16_t showAs) {
 }
 
 void BleKeyboard::end(void) {
-    if (BLEDevice::isInitialized() && pServer && pServer == BLEDevice::getServer()) {
-        while (pServer->getConnectedCount()) {
-            if (!pServer->disconnect(pServer->getPeerInfo(0).getConnHandle())) break;
-            delay(10);
-            break; // Controller shutdown below disconnects remaining peers.
-        }
-    }
+    if (!bruceBleDeinit(true)) return;
     delete hid;
     hid = nullptr;
-    bruceBleDeinit(true);
     pServer = nullptr;
     inputKeyboard = outputKeyboard = inputMediaKeys = nullptr;
     advertising = nullptr;

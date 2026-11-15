@@ -121,6 +121,10 @@ bool bruceBleDeinit(bool clearAll) {
 }
 
 void stopBLEStack() {
+    if (!bruceBleDeinit(true)) {
+        Serial.println("[BLE] shutdown failed; retained live objects");
+        return;
+    }
 #if !defined(LITE_VERSION)
     if (hid_ble) {
         hid_ble->end();
@@ -130,7 +134,6 @@ void stopBLEStack() {
         activeBLEInstances = 0;
     }
 #endif
-    if (!bruceBleDeinit(true)) Serial.println("[BLE] shutdown failed; retained live objects");
 }
 
 bool bruceBleInit(const std::string &name) {
