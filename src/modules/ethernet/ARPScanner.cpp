@@ -22,12 +22,14 @@
 #include "modules/ethernet/ARPoisoner.h"
 #include "modules/ethernet/DHCPStarvation.h"
 #include "modules/ethernet/MACFlooding.h"
+#ifndef BRUCE_DISABLE_ETHERNET
 #include <ETH.h>
+#endif
 #endif
 #include <globals.h>
 #include <sstream>
 void run_arp_scanner() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     // Prefer the Arduino ETH netif, fall back to legacy key-based lookup
     esp_netif_t *esp_netinterface = ETH.netif();
     if (esp_netinterface == nullptr) { esp_netinterface = esp_netif_get_handle_from_ifkey("ETH_DEF"); }

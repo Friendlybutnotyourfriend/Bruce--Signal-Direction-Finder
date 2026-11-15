@@ -6,13 +6,15 @@
  */
 
 #include "HostInfo.h"
+#ifndef BRUCE_DISABLE_ETHERNET
 #include "ESPNetifEthernetClient.h"
+#endif
 #include "core/display.h"
 #include "core/net_utils.h"
 #include "core/scrollableTextArea.h"
 
 HostInfo::HostInfo(const Host &host, bool wifi) {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     if (!wifi) {
         eth_client = new ESPNetifEthernetClient();
     } else {
@@ -26,7 +28,7 @@ HostInfo::HostInfo(const Host &host, bool wifi) {
 }
 
 HostInfo::~HostInfo() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     if (eth_client != nullptr) {
         delete eth_client;
     } else {
@@ -38,7 +40,7 @@ HostInfo::~HostInfo() {
 }
 
 void HostInfo::client_stop() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     if (eth_client != nullptr) {
         eth_client->client_close(sockfd);
     } else {
@@ -50,7 +52,7 @@ void HostInfo::client_stop() {
 }
 
 void HostInfo::client_connect(IPAddress ip, int port, int timeout_ms) {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     if (eth_client != nullptr) {
         sockfd = eth_client->connect(ip, port, timeout_ms);
     } else {
@@ -62,7 +64,7 @@ void HostInfo::client_connect(IPAddress ip, int port, int timeout_ms) {
 }
 
 bool HostInfo::client_connected() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) && !defined(BRUCE_DISABLE_ETHERNET)
     if (eth_client != nullptr) {
         return eth_client->connected(sockfd);
     } else {

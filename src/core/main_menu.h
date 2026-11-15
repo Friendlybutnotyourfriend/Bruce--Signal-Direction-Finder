@@ -8,15 +8,25 @@
 #include "menu_items/ConfigMenu.h"
 #include "menu_items/ConnectMenu.h"
 #include "menu_items/DfMenu.h"
+#ifndef BRUCE_DISABLE_ETHERNET
 #include "menu_items/EthernetMenu.h"
+#endif
+#ifndef BRUCE_DISABLE_FM
 #include "menu_items/FMMenu.h"
+#endif
 #include "menu_items/FileMenu.h"
 #include "menu_items/GpsMenu.h"
+#ifndef BRUCE_DISABLE_IR
 #include "menu_items/IRMenu.h"
+#endif
+#ifndef BRUCE_DISABLE_LORA
 #include "menu_items/LoRaMenu.h"
+#endif
 #include "menu_items/NRF24.h"
 #include "menu_items/OthersMenu.h"
+#ifndef BRUCE_DISABLE_RFID
 #include "menu_items/RFIDMenu.h"
+#endif
 #include "menu_items/RFMenu.h"
 #include "menu_items/ScriptsMenu.h"
 #include "menu_items/WifiMenu.h"
@@ -29,18 +39,28 @@ public:
     ClockMenu clockMenu;
     ConnectMenu connectMenu;
     ConfigMenu configMenu;
+#ifndef BRUCE_DISABLE_FM
     FMMenu fmMenu;
+#endif
     GpsMenu gpsMenu;
+#ifndef BRUCE_DISABLE_IR
     IRMenu irMenu;
+#endif
     NRF24Menu nrf24Menu;
     OthersMenu othersMenu;
+#ifndef BRUCE_DISABLE_RFID
     RFIDMenu rfidMenu;
+#endif
     RFMenu rfMenu;
     ScriptsMenu scriptsMenu;
     WifiMenu wifiMenu;
 #if !defined(LITE_VERSION)
+#ifndef BRUCE_DISABLE_LORA
     LoRaMenu loraMenu;
+#endif
+#ifndef BRUCE_DISABLE_ETHERNET
     EthernetMenu ethernetMenu;
+#endif
     WireToolsMenu wireToolsMenu;
 #endif
 

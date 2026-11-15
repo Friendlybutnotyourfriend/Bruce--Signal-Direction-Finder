@@ -4,11 +4,15 @@
 #include "crypto_commands.h"
 #include "gpio_commands.h"
 #include "interpreter_commands.h"
+#ifndef BRUCE_DISABLE_IR
 #include "ir_commands.h"
+#endif
 #include "led_commands.h"
 #include "power_commands.h"
 #include "rf_commands.h"
+#ifndef BRUCE_DISABLE_RFID
 #include "rfid_commands.h"
+#endif
 #include "screen_commands.h"
 #include "settings_commands.h"
 #include "sound_commands.h"
@@ -47,10 +51,14 @@ void SerialCli::setup() {
 
     createCryptoCommands(&_cli);
     createGpioCommands(&_cli);
+#ifndef BRUCE_DISABLE_IR
     createIrCommands(&_cli);
+#endif
     createPowerCommands(&_cli);
     createRfCommands(&_cli);
+#ifndef BRUCE_DISABLE_RFID
     createRfidCommands(&_cli);
+#endif
     createSettingsCommands(&_cli);
     createStorageCommands(&_cli);
     createUtilCommands(&_cli);

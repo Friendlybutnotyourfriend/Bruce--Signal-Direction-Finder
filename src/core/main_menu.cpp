@@ -11,17 +11,27 @@ MainMenu::MainMenu() {
         &rfMenu,
         &nrf24Menu,
 #if !defined(LITE_VERSION)
+#ifndef BRUCE_DISABLE_LORA
         &loraMenu,
 #endif
+#endif
 #if !defined(LITE_VERSION)
+#ifndef BRUCE_DISABLE_FM
         &fmMenu,
 #endif
+#endif
+#ifndef BRUCE_DISABLE_IR
         &irMenu,
+#endif
 #if !defined(LITE_VERSION)
+#ifndef BRUCE_DISABLE_ETHERNET
         &ethernetMenu,
 #endif
+#endif
         &gpsMenu,
+#ifndef BRUCE_DISABLE_RFID
         &rfidMenu,
+#endif
         &fileMenu,
 #if !defined(LITE_VERSION) && !defined(DISABLE_INTERPRETER)
         &scriptsMenu,

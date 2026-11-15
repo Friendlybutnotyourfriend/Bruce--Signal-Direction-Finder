@@ -17,8 +17,10 @@
 #include "modules/gps/wardriving.h"
 #include "modules/pwnagotchi/pwnagotchi.h"
 #include "modules/rf/rf_send.h"
+#ifndef BRUCE_DISABLE_RFID
 #include "modules/rfid/PN532KillerTools.h"
 #include "modules/rfid/pn532ble.h"
+#endif
 #include "modules/wifi/sniffer.h"
 #ifdef SOC_USB_OTG_SUPPORTED
 #include "core/massStorage.h"
@@ -29,8 +31,10 @@ StartupApp::StartupApp() {
     _startupApps["Brucegotchi"] = []() { brucegotchi_start(); };
     _startupApps["Sniffer"] = []() { sniffer_setup(); };
     _startupApps["GPS Tracker"] = []() { GPSTracker(); };
+#ifndef BRUCE_DISABLE_RFID
     _startupApps["PN532 BLE"] = []() { Pn532ble(); };
     _startupApps["PN532 UART"] = []() { PN532KillerTools(); };
+#endif
 #endif
     _startupApps["Clock"] = []() { runClockLoop(); };
     _startupApps["Custom SubGHz"] = []() { sendCustomRF(); };

@@ -1,4 +1,4 @@
-name: Fenrir nRF Black Box Stability2
+name: Fenrir nRF Black Box Lean1
 on:
   push:
     branches: [codex/fenrir-nrf-blackbox-stability]
@@ -62,10 +62,11 @@ jobs:
         run: |
           pio run -e fenrir-ebyte
           python scripts/package_fenrir.py --env fenrir-ebyte
+          python scripts/report_fenrir_memory.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Stability2
+          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Lean1
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4

@@ -5,8 +5,10 @@
 #include "modules/bjs_interpreter/interpreter.h"
 #include "modules/gps/wdgwars.h"
 #include "modules/gps/wigle.h"
+#ifndef BRUCE_DISABLE_IR
 #include "modules/ir/TV-B-Gone.h"
 #include "modules/ir/custom_ir.h"
+#endif
 #include "modules/others/audio.h"
 #if defined(HAS_SPEAKER)
 #include "modules/others/audio_player.h"
@@ -746,6 +748,7 @@ String loopSD(FS &fs, bool filePicker, const String &allowed_ext, String rootPat
                                                      while (!check(AnyKeyPress))
                                                          vTaskDelay(10 / portTICK_PERIOD_MS);
                                                  }});
+#ifndef BRUCE_DISABLE_IR
             if (filepath.endsWith(".ir")) {
                 options.insert(options.begin(), {"IR Choose cmd", [&]() {
                                                      delay(200);
@@ -756,6 +759,7 @@ String loopSD(FS &fs, bool filePicker, const String &allowed_ext, String rootPat
                                                      txIrFile(&fs, filepath);
                                                  }});
             }
+#endif
             if (filepath.endsWith(".sub"))
                 options.insert(options.begin(), {"Subghz Tx", [&]() {
                                                      delay(200);

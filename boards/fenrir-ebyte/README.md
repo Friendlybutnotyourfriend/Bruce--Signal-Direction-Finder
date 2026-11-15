@@ -1,7 +1,15 @@
-# Fenrir Black Box / Stability2 candidate
+# Fenrir Black Box / Lean1 candidate
 
 This is a full standalone 4 MB Fenrir build. Hardware qualification is pending.
-Use `Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin` at offset `0x0` for USB installation.
+Use `Bruce-1.17-Fenrir-BlackBox-Lean1-Full-USB.bin` at offset `0x0` for USB installation.
+
+## Lean1 feature exclusions
+
+LoRa, FM, Ethernet, IR and RFID/NFC are excluded for this Fenrir build,
+including their menu instances, startup hooks, serial commands and dedicated libraries.
+Wi-Fi network tools retain the shared network code. Other board profiles are unchanged.
+The 48 KiB BLE startup guard remains unchanged; the build includes a static RAM
+report, but only the physical device can establish the largest free DMA block.
 
 ## nRF24 2.4 GHz Black Box
 
@@ -56,13 +64,13 @@ Classic ESP32, 4 MB flash, ST7789 display, E07/E01 radio daughterboard.
 No Launcher is required or included.
 
 ## Files
-Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin
+Bruce-1.17-Fenrir-BlackBox-Lean1-Full-USB.bin
   Complete standalone image: bootloader, partition table and firmware.
   Flash at offset 0x0 using a compatible ESP32 USB flasher.
   Back up existing settings/internal files first: this writes across NVS and
   installs the standalone partition layout.
 
-Bruce-1.17-Fenrir-BlackBox-Stability2-Full-App.bin
+Bruce-1.17-Fenrir-BlackBox-Lean1-Full-App.bin
   Application-only update. Flash at 0x10000 ONLY if the existing partition
   table matches: factory app offset 0x10000, size 0x3C0000; filesystem offset
   0x3D0000, size 0x30000. This is the saved Fenrir standalone layout.
@@ -73,8 +81,8 @@ Bruce-1.17-Fenrir-BlackBox-Stability2-Full-App.bin
 The custom BLE Hunter/Sniffer, sessions/review, Sentinel, Antenna ID,
 Radio Control and RF Black Box/Receive Profile Finder are retained.
 The JavaScript interpreter is excluded to fit the existing 4 MB layout.
-This standalone image retains TV-B-Gone; the experimental Launcher reductions
-are not applied. No speaker/microphone is wired on this board.
+LoRa, FM, Ethernet, IR (including TV-B-Gone), and RFID/NFC are excluded.
+No speaker/microphone is wired on this board.
 
 ## RAM Fix2
 On Fenrir's classic ESP32, the BLE memory guard now reclaims the unused
@@ -108,7 +116,7 @@ Close the serial monitor with Ctrl+] before flashing. For a complete standalone
 install, save the Full-USB BIN directly in Downloads and run (overwrites settings):
 
 ```powershell
-py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin"
+py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-BlackBox-Lean1-Full-USB.bin"
 py -m serial.tools.miniterm --dtr 0 --rts 0 COM12 115200
 ```
 

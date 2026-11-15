@@ -1,8 +1,10 @@
 #include "mykeyboard.h"
 #include "core/utils.h"
 #include "core/wifi/webInterface.h"
+#ifndef BRUCE_DISABLE_IR
 #include "modules/ir/TV-B-Gone.h"
 #include "modules/ir/custom_ir.h"
+#endif
 #include "modules/rf/rf_send.h"
 #include "powerSave.h"
 #include "sd_functions.h"
@@ -282,7 +284,9 @@ bool checkShortcutPress() {
         if (!file) {
             log_e("Shortcuts Config file not found. Using default values");
             JsonObject shortcuts = shortcutsJson.to<JsonObject>(); // root
+#ifndef BRUCE_DISABLE_IR
             shortcuts["i"] = "loader open ir";
+#endif
             shortcuts["r"] = "loader open rf";
             shortcuts["s"] = "loader open rf";
             shortcuts["b"] = "loader open badusb";
