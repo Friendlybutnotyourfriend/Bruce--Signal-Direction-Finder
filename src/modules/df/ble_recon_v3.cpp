@@ -51,8 +51,14 @@ void logReconMemory(const char *context, uint32_t &lastLog) {
 }
 
 constexpr uint32_t DISCOVERY_MS = 5000;
+#if defined(CONFIG_IDF_TARGET_ESP32)
+// Classic ESP32 receives legacy advertising: 31-byte ADV plus 31-byte scan response.
+constexpr size_t MAX_PAYLOAD = 62;
+constexpr size_t MAX_RESPONSE = 31;
+#else
 constexpr size_t MAX_PAYLOAD = 256;
 constexpr size_t MAX_RESPONSE = 128;
+#endif
 constexpr size_t MAX_NAME = 40;
 constexpr size_t MAX_HISTORY = 8;
 constexpr size_t MAX_LINES = 180;
@@ -228,14 +234,13 @@ static HunterState *memUiHunter = nullptr;
 static SnifferState *memUiSniffer = nullptr;
 static SnifferState *memUiFrozen = nullptr;
 static recon::Association *memAssociation = nullptr;
-static bool ensureReconRam() {
-    if (memHunter && memSniffer && memUiHunter && memUiSniffer && memUiFrozen && memAssociation) return true;
-    if (!lazyRam(memHunter)) return false;
-    if (!lazyRam(memSniffer)) return false;
-    if (!lazyRam(memUiHunter)) return false;
-    if (!lazyRam(memUiSniffer)) return false;
-    if (!lazyRam(memUiFrozen)) return false;
+static bool ensureReconRam(bool hunter) {
     if (!lazyRam(memAssociation)) return false;
+    if (hunter) {
+        if (!lazyRam(memHunter) || !lazyRam(memUiHunter)) return false;
+    } else {
+        if (!lazyRam(memSniffer) || !lazyRam(memUiSniffer) || !lazyRam(memUiFrozen)) return false;
+    }
     return true;
 }
 static void releaseReconRam() {
@@ -249,7 +254,10 @@ static void releaseReconRam() {
 struct ReconSession {
     ~ReconSession() {
         stopBLEStack(); // Quiesce callbacks before releasing their state.
-        if (!NimBLEDevice::isInitialized()) releaseReconRam();
+        if (!NimBLEDevice::isInitialized()) {
+            recon::capture.release();
+            releaseReconRam();
+        }
     }
 };
 #define hunterState (*memHunter)
@@ -723,7 +731,7 @@ void pushHistory(HunterState &s, const char *a) {
 class HunterCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device || !ensureReconRam()) return;
+        if (!device || !memHunter || !memAssociation) return;
         BleObservation o;
         fillObservation(device, o);
         const uint32_t now = millis();
@@ -883,7 +891,10 @@ void recordReconVoiceNote() {
 
 void huntTarget(const BleObservation &t) {
     if (!ble_scan_setup() || !pBLEScan) {
-        displayError("BLE scanner unavailable", true);
+        return;
+    }
+    if (!ensureReconRam(true)) {
+        displayError("Hunter working RAM unavailable", true);
         return;
     }
     resetHunter(t);
@@ -1049,9 +1060,8 @@ void huntTarget(const BleObservation &t) {
     pBLEScan->clearResults();
     stopBLEStack();
 }
-std::vector<BleObservation> discoverTargets(bool active) {
-    std::vector<BleObservation> out;
-    if (!ble_scan_setup() || !pBLEScan) return out;
+bool discoverTargets(bool active, std::vector<BleObservation> &out) {
+    if (!ble_scan_setup() || !pBLEScan) return false;
     pBLEScan->stop();
     pBLEScan->clearResults();
     pBLEScan->setActiveScan(active);
@@ -1060,7 +1070,7 @@ std::vector<BleObservation> discoverTargets(bool active) {
 #endif
     pBLEScan->setInterval(SCAN_INT);
     pBLEScan->setWindow(SCAN_WINDOW);
-    pBLEScan->setMaxResults(80);
+    pBLEScan->setMaxResults(60);
     displayTextLine(active ? "Scanning BLE advertisers..." : "Listening for BLE advertisers...");
     BLEScanResults results = pBLEScan->getResults(DISCOVERY_MS, false);
     out.reserve(std::min(results.getCount(), 60));
@@ -1075,7 +1085,7 @@ std::vector<BleObservation> discoverTargets(bool active) {
         return a.rssi > b.rssi;
     });
     pBLEScan->clearResults();
-    return out;
+    return true;
 }
 void updateMutation(MutationModel &m, const BleObservation &o) {
     if (!m.valid && !o.payloadLen) return;
@@ -1141,7 +1151,7 @@ void updateFcf1(Fcf1Tracker &f, const BleObservation &o, uint32_t now) {
 class SnifferCallbacks : public NimBLEScanCallbacks {
 public:
     void onResult(const NimBLEAdvertisedDevice *device) override {
-        if (!device || !ensureReconRam()) return;
+        if (!device || !memSniffer || !memAssociation) return;
         static uint32_t lastLog = 0;
         logReconMemory("SNIFFER_HOST", lastLog);
         BleObservation o;
@@ -1587,7 +1597,10 @@ void showGatt(const GattResult &r, const String &identity) {
 }
 void sniffTarget(const BleObservation &t) {
     if (!ble_scan_setup() || !pBLEScan) {
-        displayError("BLE scanner unavailable", true);
+        return;
+    }
+    if (!ensureReconRam(false)) {
+        displayError("Sniffer working RAM unavailable", true);
         return;
     }
     resetSniffer(t);
@@ -1750,55 +1763,46 @@ void sniffTarget(const BleObservation &t) {
     pBLEScan->clearResults();
     stopBLEStack();
 }
+bool chooseReconTarget(bool hunter, BleObservation &selected) {
+    std::vector<BleObservation> targets;
+    if (!discoverTargets(false, targets)) return false;
+    if (targets.empty()) {
+        displayWarning("No BLE advertisers found", true);
+        return false;
+    }
+    int selectedIndex = -1;
+    std::vector<Option> choices;
+    choices.reserve(targets.size() + 1);
+    for (size_t i = 0; i < targets.size(); ++i) {
+        const BleObservation &target = targets[i];
+        String label = target.name[0] ? String(target.name) : String(target.address);
+        if (target.name[0]) label += " [" + String(target.address).substring(12) + "]";
+        label += " " + String(target.rssi);
+        choices.emplace_back(label, [&selectedIndex, i]() { selectedIndex = static_cast<int>(i); });
+    }
+    choices.emplace_back("Main menu", []() { returnToMenu = true; });
+    loopOptions(choices, MENU_TYPE_REGULAR, hunter ? "BLE Hunter target" : "BLE Sniffer target", 0, false);
+    if (selectedIndex < 0 || static_cast<size_t>(selectedIndex) >= targets.size()) return false;
+    selected = targets[selectedIndex];
+    // Both the list and its menu callbacks are destroyed before working state is allocated.
+    return true;
+}
+void runReconSession(bool hunter) {
+    ReconSession session;
+    stopBLEStack();
+    if (NimBLEDevice::isInitialized()) {
+        displayError("BLE stop failed; retry", true);
+        return;
+    }
+    recon::capture.release();
+    releaseReconRam();
+    BleObservation target;
+    // Start the radio before feature buffers can split its contiguous memory block.
+    if (!chooseReconTarget(hunter, target)) return;
+    if (hunter) huntTarget(target);
+    else sniffTarget(target);
+}
 } // namespace
 
-void bleHunterV3() {
-    ReconSession session;
-    if (!ensureReconRam()) {
-        displayError("Not enough RAM", true);
-        return;
-    }
-    const std::vector<BleObservation> targets = discoverTargets(false);
-    if (targets.empty()) {
-        displayWarning("No BLE advertisers found", true);
-        stopBLEStack();
-        return;
-    }
-    options.clear();
-    for (size_t i = 0; i < std::min<size_t>(targets.size(), 60); i++) {
-        const BleObservation target = targets[i];
-        String label = target.name[0] ? String(target.name) : String(target.address);
-        if (target.name[0]) label += " [" + String(target.address).substring(12) + "]";
-        label += " " + String(target.rssi);
-        options.emplace_back(label, [target]() { huntTarget(target); });
-    }
-    addOptionToMainMenu();
-    loopOptions(options, MENU_TYPE_REGULAR, "BLE Hunter target", 0, false);
-    options.clear();
-    stopBLEStack();
-}
-void bleSnifferV3() {
-    ReconSession session;
-    if (!ensureReconRam()) {
-        displayError("Not enough RAM", true);
-        return;
-    }
-    const std::vector<BleObservation> targets = discoverTargets(false);
-    if (targets.empty()) {
-        displayWarning("No BLE advertisers found", true);
-        stopBLEStack();
-        return;
-    }
-    options.clear();
-    for (size_t i = 0; i < std::min<size_t>(targets.size(), 60); i++) {
-        const BleObservation target = targets[i];
-        String label = target.name[0] ? String(target.name) : String(target.address);
-        if (target.name[0]) label += " [" + String(target.address).substring(12) + "]";
-        label += " " + String(target.rssi);
-        options.emplace_back(label, [target]() { sniffTarget(target); });
-    }
-    addOptionToMainMenu();
-    loopOptions(options, MENU_TYPE_REGULAR, "BLE Sniffer target", 0, false);
-    options.clear();
-    stopBLEStack();
-}
+void bleHunterV3() { runReconSession(true); }
+void bleSnifferV3() { runReconSession(false); }

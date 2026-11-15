@@ -31,6 +31,8 @@ public:
     void drain(unsigned limit = 16);
     void event(const char *kind, const char *detail = "");
     void end();
+    // Call only after scan callbacks have stopped; end() alone keeps a reusable queue.
+    void release();
     String status() const;
     bool active() const { return enabled.load(); }
 };

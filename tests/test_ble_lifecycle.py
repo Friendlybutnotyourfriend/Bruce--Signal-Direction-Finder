@@ -42,6 +42,8 @@ void displayError(const char*,bool){}
 void cleanlyStopWebUiForWiFiFeature(){}
 void wifiDisconnect(){++wifiStops;}
 bool radioHasMemForBle(){++guardCalls;return budget;}
+constexpr size_t RADIO_BLE_MIN_DMA_BLOCK=48*1024;
+size_t radioLargestDmaBlock(){return budget?64*1024:32*1024;}
 enum Status { ESP_BT_CONTROLLER_STATUS_IDLE, ESP_BT_CONTROLLER_STATUS_INITED, ESP_BT_CONTROLLER_STATUS_ENABLED };
 static Status controller=ESP_BT_CONTROLLER_STATUS_IDLE;
 Status esp_bt_controller_get_status(){return controller;}

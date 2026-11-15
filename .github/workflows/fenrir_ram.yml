@@ -1,4 +1,4 @@
-name: Fenrir nRF Black Box Stability1
+name: Fenrir nRF Black Box Stability2
 on:
   push:
     branches: [codex/fenrir-nrf-blackbox-stability]
@@ -47,6 +47,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_ble_lifecycle.py'
           python -m unittest discover -s tests -p 'test_radio_resources.py'
+          python -m unittest discover -s tests -p 'test_recon_ram.py'
           g++ -std=c++11 -Wall -Wextra -Werror tests/nrf_blackbox_test.cpp -o /tmp/nrf-blackbox
           /tmp/nrf-blackbox
           g++ -std=c++11 -Wall -Wextra -Werror -Itests/stubs/lazy_ram -Isrc tests/lazy_ram_test.cpp -o /tmp/lazy-ram
@@ -64,7 +65,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Stability1
+          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Stability2
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4

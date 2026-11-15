@@ -144,7 +144,10 @@ bool bruceBleInit(const std::string &name) {
         wifiDisconnect();
     }
     if (!radioHasMemForBle()) {
-        displayError("Low RAM: BLE not started", true);
+        char message[48];
+        snprintf(message, sizeof(message), "BLE RAM block %u/%u KiB",
+                 unsigned(radioLargestDmaBlock() / 1024), unsigned(RADIO_BLE_MIN_DMA_BLOCK / 1024));
+        displayError(message, true);
         return false;
     }
     if (!BLEDevice::init(name)) {

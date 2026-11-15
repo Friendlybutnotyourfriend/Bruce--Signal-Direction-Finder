@@ -79,6 +79,10 @@ void Capture::end() {
          ",\"truncated\":" + truncated.load() + ",\"write_error\":" + (failed ? "true" : "false") + "}");
     file.flush(); file.close();
 }
+void Capture::release() {
+    end();
+    if (queue) { vQueueDelete(queue); queue = nullptr; }
+}
 String Capture::status() const {
     if (failed) return "SD WRITE ERROR";
     if (!enabled.load()) return "REC OFF / no SD";

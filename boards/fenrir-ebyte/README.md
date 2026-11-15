@@ -1,7 +1,7 @@
-# Fenrir Black Box / Stability1 candidate
+# Fenrir Black Box / Stability2 candidate
 
 This is a full standalone 4 MB Fenrir build. Hardware qualification is pending.
-Use `Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin` at offset `0x0` for USB installation.
+Use `Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin` at offset `0x0` for USB installation.
 
 ## nRF24 2.4 GHz Black Box
 
@@ -17,6 +17,22 @@ threshold. It samples channels sequentially, with gaps for display and SD writes
 actual window duration and per-channel sample counts. A rise marker means at least one channel
 changed from below 20% to at least 40% hits; it is not a threat classification.
 Wi-Fi and BLE on this board are stopped during capture. Auto-ACK is disabled and no packets are sent.
+
+## Hunter / Sniffer RAM correction in Stability2
+
+The previous build allocated both modes' snapshots before starting BLE. This
+could consume the radio's largest contiguous block before its 48 KiB startup
+guard ran. The radio now starts first; only the selected mode's working state
+is allocated, after the target list and menu callbacks have been destroyed.
+The 48 KiB radio startup threshold is unchanged.
+
+Classic ESP32 observation buffers now hold the complete legacy ADV + response
+(62 bytes and a 31-byte response), instead of extended-advertising-sized arrays.
+Other chips keep the larger buffers. Discovery retains up to 60 devices; menu
+callbacks carry an index rather than copies of full observations.
+The recording queue is released after the BLE host stops, including failed
+recording attempts. An initialization failure retains its original error;
+the screen shows the largest DMA block and required size if the guard refuses.
 
 ## Stability changes
 
@@ -40,13 +56,13 @@ Classic ESP32, 4 MB flash, ST7789 display, E07/E01 radio daughterboard.
 No Launcher is required or included.
 
 ## Files
-Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin
+Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin
   Complete standalone image: bootloader, partition table and firmware.
   Flash at offset 0x0 using a compatible ESP32 USB flasher.
   Back up existing settings/internal files first: this writes across NVS and
   installs the standalone partition layout.
 
-Bruce-1.17-Fenrir-BlackBox-Stability1-Full-App.bin
+Bruce-1.17-Fenrir-BlackBox-Stability2-Full-App.bin
   Application-only update. Flash at 0x10000 ONLY if the existing partition
   table matches: factory app offset 0x10000, size 0x3C0000; filesystem offset
   0x3D0000, size 0x30000. This is the saved Fenrir standalone layout.
@@ -92,7 +108,7 @@ Close the serial monitor with Ctrl+] before flashing. For a complete standalone
 install, save the Full-USB BIN directly in Downloads and run (overwrites settings):
 
 ```powershell
-py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin"
+py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-BlackBox-Stability2-Full-USB.bin"
 py -m serial.tools.miniterm --dtr 0 --rts 0 COM12 115200
 ```
 
