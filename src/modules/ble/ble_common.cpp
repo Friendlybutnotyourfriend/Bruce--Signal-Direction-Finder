@@ -146,7 +146,12 @@ bool ble_scan_setup() {
         return false;
     }
 
-    BLEDevice::init("");
+    if (!BLEDevice::init("")) {
+        Serial.println("[BLE] NimBLE initialization failed");
+        displayError("BLE init failed (see serial)", true);
+        returnToMenu = true;
+        return false;
+    }
     is_ble_inited = true;
 
     RAM_LOG("ble-scan post-init");

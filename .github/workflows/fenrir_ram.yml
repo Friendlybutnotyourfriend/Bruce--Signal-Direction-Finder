@@ -1,7 +1,7 @@
-name: Fenrir Sentinel RAM fix
+name: Fenrir BLE RAM Fix2
 on:
   push:
-    branches: [codex/fenrir-sentinel-ram]
+    branches: [codex/fenrir-ble-ram-fix2]
   workflow_dispatch:
 env:
   PYTHONDONTWRITEBYTECODE: 1
@@ -31,6 +31,10 @@ jobs:
           restore-keys: native117-${{ runner.os }}-
       - name: Host regressions
         run: |
+          for flags in '-DFENRIR_EBYTE=1 -DCONFIG_IDF_TARGET_ESP32=1' '-DCONFIG_IDF_TARGET_ESP32=1' '-DFENRIR_EBYTE=1'; do
+            g++ -std=c++11 -Wall -Wextra -Werror -DBRUCE_NO_SDR_JAMMER=1 $flags -Itests/stubs/radio_mem -Isrc tests/radio_mem_test.cpp -o /tmp/radio-mem
+            /tmp/radio-mem
+          done
           g++ -std=c++11 -Wall -Wextra -Werror tests/sentinel_score_test.cpp src/modules/sentinel/sentinel_score.cpp -I src/modules/sentinel -o /tmp/sentinel
           /tmp/sentinel
           for test in rf_lab_core recon_core cbd_stability; do
@@ -52,7 +56,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bruce-1.17-Fenrir-Standalone-RAM-Fix1
+          name: Bruce-1.17-Fenrir-Standalone-RAM-Fix2
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4

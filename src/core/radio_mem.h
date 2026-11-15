@@ -19,6 +19,9 @@
 #include <stddef.h>
 #include "core/wifi/wifi_common.h"
 #include <WiFi.h>
+#if defined(FENRIR_EBYTE) && defined(CONFIG_IDF_TARGET_ESP32)
+#include <esp_bt.h>
+#endif
 
 // Largest contiguous DMA-capable internal block, in bytes. This is the number
 // that gates Wi-Fi/BLE controller init.
@@ -57,7 +60,17 @@ static inline bool radioHasMemForWifi() {
 }
 
 static inline bool radioHasMemForBle() {
-    // return true; // uncomment to disable it
+#if defined(FENRIR_EBYTE) && defined(CONFIG_IDF_TARGET_ESP32)
+    // NimBLE 2.5.1 releases Classic BT memory inside init(), but this guard can
+    // reject that call before it runs. Reclaim the same unused mode first;
+    // BLE controller memory must remain available for later restarts.
+    if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE) {
+        const size_t before = radioLargestDmaBlock();
+        const esp_err_t err = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+        Serial.printf("[RAM] Classic BT release=%d, DMA block %u -> %u bytes\n",
+                      (int)err, (unsigned)before, (unsigned)radioLargestDmaBlock());
+    }
+#endif
     if (radioLargestDmaBlock() >= RADIO_BLE_MIN_DMA_BLOCK) return true;
 
     // Not enough DMA memory - first hand the SDR bank back to the heap

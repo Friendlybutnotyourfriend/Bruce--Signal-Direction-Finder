@@ -28,9 +28,9 @@ if launcher and 0x160000 + ((len(app) + 0xffff) & ~0xffff) + 0x10000 > 0x400000:
 out = root / '.pio/release'
 out.mkdir(parents=True, exist_ok=True)
 variant = 'Launcher' if launcher else 'Full'
-images = {f'Bruce-1.17-Fenrir-RAM-Fix1-{variant}-App.bin': app}
+images = {f'Bruce-1.17-Fenrir-RAM-Fix2-{variant}-App.bin': app}
 if not launcher:
-    images['Bruce-1.17-Fenrir-RAM-Fix1-Full-USB.bin'] = (root / f'Bruce-{args.env}.bin').read_bytes()
+    images['Bruce-1.17-Fenrir-RAM-Fix2-Full-USB.bin'] = (root / f'Bruce-{args.env}.bin').read_bytes()
 manifest = dict(identity, hardware_tested=False, app_partition_bytes=limit, headroom_bytes=limit-len(app), files=[])
 for name, data in images.items():
     (out / name).write_bytes(data)
