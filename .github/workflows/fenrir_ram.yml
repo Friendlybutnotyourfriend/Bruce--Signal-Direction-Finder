@@ -29,6 +29,19 @@ jobs:
             .pio/libdeps
           key: native117-${{ runner.os }}-${{ hashFiles('platformio.ini', 'boards/**/*.ini') }}
           restore-keys: native117-${{ runner.os }}-
+      - name: Restore cached SDK build settings
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          sdk = Path.home() / '.platformio/packages/framework-arduinoespressif32-libs/esp32'
+          backup = sdk / 'pioarduino-build.py.esp32'
+          # A failed PlatformIO build skips its SDK restoration callback.
+          if backup.exists():
+              shutil.copy2(backup, sdk / 'pioarduino-build.py')
+              backup.unlink()
+              print('Restored SDK settings left by an interrupted build')
+          PY
       - name: Host regressions
         run: |
           for flags in '-DFENRIR_EBYTE=1 -DCONFIG_IDF_TARGET_ESP32=1' '-DCONFIG_IDF_TARGET_ESP32=1' '-DFENRIR_EBYTE=1'; do
@@ -70,7 +83,7 @@ jobs:
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4
-        if: always() && steps.pio-cache.outputs.cache-hit != 'true'
+        if: success() && steps.pio-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.platformio
