@@ -16,6 +16,10 @@
 #include "modules/rf/rf_waterfall.h"
 #include "modules/rf/rf_protopirate.h"
 
+#if defined(FENRIR_EBYTE)
+extern void fenrirRssiScan();
+#endif
+
 void RFMenu::optionsMenu() {
     options = {
         {"Scan/copy",       [=]() { RFScan(); }       },
@@ -37,6 +41,14 @@ void RFMenu::optionsMenu() {
         {"Jammer",          [=]() { RFJammer(true); } },
         {"Radio Control",   []() { RadioControl::ccMenu(); }},
         {"RF Black Box / Finder", rfLabMenu},
+#endif
+#if defined(FENRIR_RECON_LITE)
+        {"Antenna ID", rf_antenna_id},
+        {"Radio Control", []() { RadioControl::ccMenu(); }},
+        {"RF Black Box / Finder", rfLabMenu},
+#endif
+#if defined(FENRIR_EBYTE)
+        {"E07 RSSI Scan", fenrirRssiScan},
 #endif
         {"Config",          [this]() { configMenu(); }},
     };

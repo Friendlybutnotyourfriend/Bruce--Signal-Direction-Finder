@@ -380,7 +380,7 @@ void printResults(const WifiResult &wifi, const BleResult &ble) {
 } // namespace
 
 void rf_antenna_id_24ghz() {
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
     if (!waitForStart()) return;
 
     while (true) {

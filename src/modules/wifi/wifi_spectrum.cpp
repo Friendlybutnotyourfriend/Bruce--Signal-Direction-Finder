@@ -1,4 +1,4 @@
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
 #include "wifi_spectrum.h"
 
 #include "core/display.h"

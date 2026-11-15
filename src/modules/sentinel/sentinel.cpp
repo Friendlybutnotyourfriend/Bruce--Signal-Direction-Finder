@@ -1,4 +1,4 @@
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
 // Sentinel: 2.4 GHz defensive detection. It listens and logs patterns.
 // It does not transmit deauth, spam, exploits, or jamming.
 //

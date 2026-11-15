@@ -1,6 +1,6 @@
 #pragma once
 
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
 
 // Deauth/disassoc flood ("jamming") detector.
 // Watches management-frame deauth rate on the selected channel and raises a

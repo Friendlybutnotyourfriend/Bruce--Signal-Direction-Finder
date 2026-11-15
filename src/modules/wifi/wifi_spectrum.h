@@ -1,6 +1,6 @@
 #pragma once
 
-#if !defined(LITE_VERSION)
+#if !defined(LITE_VERSION) || defined(FENRIR_RECON_LITE)
 
 #include "core/spectrum_plot.h"
 #include <Arduino.h>

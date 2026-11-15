@@ -13,6 +13,9 @@
 #include "modules/ble/ble_sniffer.h"
 #endif
 #include <globals.h>
+#if defined(FENRIR_RECON_LITE)
+#include "modules/sentinel/sentinel.h"
+#endif
 
 void BleMenu::optionsMenu() {
     options.clear();
@@ -46,7 +49,14 @@ void BleMenu::optionsMenu() {
     options.push_back({"Ninebot", [=]() { BLENinebot(); }});
     options.push_back({"Presenter mode", [=]() { PresenterMode(hid_ble, true); }});
 #else
+#if defined(FENRIR_RECON_LITE)
+    options.push_back({"Sentinel", sentinel_menu});
+    options.push_back({"BLE Hunter", []() { bleHunterV3(); }});
+    options.push_back({"BLE Sniffer", bleSnifferV3});
+    options.push_back({"BLE Sessions", bleSessionReview});
+#else
     options.push_back({"BLE Sniffer", [=]() { BLE_SnifferMenu(); }});
+#endif
 #endif
     addOptionToMainMenu();
 
