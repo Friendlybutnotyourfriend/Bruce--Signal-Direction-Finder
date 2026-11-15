@@ -66,7 +66,7 @@ void channel_analyzer_setup() {
         return;
     }
 
-    if (!ca_start_wifi()) return;
+    if (!ca_start_wifi()) { view.end(); return; }
     view.commit(load, CA_CHANNELS[0]);
     view.status("CH" + String(CA_CHANNELS[0]) + " scanning...");
 

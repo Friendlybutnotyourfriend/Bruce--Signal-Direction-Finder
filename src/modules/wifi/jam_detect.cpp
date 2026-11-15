@@ -86,7 +86,7 @@ void jam_detect_setup() {
         return;
     }
 
-    if (!jd_start_wifi()) return;
+    if (!jd_start_wifi()) { view.end(); return; }
     view.commit(lvl, JD_CHANNELS[0]);
     view.status("CH" + String(JD_CHANNELS[0]) + " scanning  thr" + String(threshold) + "/s");
 
