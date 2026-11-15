@@ -1,0 +1,43 @@
+name: Fenrir standalone download
+on:
+  push:
+    branches: [codex/fenrir-standalone-release]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bruce-1.17-Fenrir
+          run-id: 43708028965
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: verified-build
+      - name: Verify and package standalone only
+        shell: python
+        run: |
+          import hashlib, json, pathlib, shutil
+          source = pathlib.Path('verified-build')
+          output = pathlib.Path('standalone')
+          output.mkdir()
+          manifest = json.loads((source / 'Fenrir-Full-manifest.json').read_text())
+          assert manifest['commit'] == '65144532022a97cf87df10f1a800b7437b2d9259'
+          assert not manifest['dirty']
+          for entry in manifest['files']:
+              path = source / entry['name']
+              data = path.read_bytes()
+              assert len(data) == entry['bytes']
+              assert hashlib.sha256(data).hexdigest() == entry['sha256']
+              shutil.copyfile(path, output / path.name)
+              shutil.copyfile(source / (path.name+'.sha256'), output / (path.name+'.sha256'))
+          shutil.copyfile(source / 'Fenrir-Full-manifest.json', output / 'Fenrir-Full-manifest.json')
+          shutil.copyfile('docs/fenrir-standalone.txt', output / 'Fenrir-Standalone-README.txt')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-1.17-Fenrir-Standalone
+          path: standalone/*
+          if-no-files-found: error
