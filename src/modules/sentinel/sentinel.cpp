@@ -14,6 +14,8 @@
 #include "core/display.h"
 #include "core/mykeyboard.h"
 #include "core/radio_mem.h"
+#include "core/ram_profile.h"
+#include "core/wifi/webInterface.h"
 #include "core/scrollableTextArea.h"
 #include "core/wifi/wifi_common.h"
 #include "modules/ble/ble_common.h"
@@ -1204,50 +1206,51 @@ bool tune_watch_channel(uint8_t channel) {
     return true;
 }
 
+void stop_wifi();
+
 bool start_wifi() {
+    RAM_LOG("sentinel-wifi-pre");
     if (!radioHasMemForWifi()) {
         displayError("Not enough RAM for monitor mode", true);
         return false;
     }
+    auto failed = [](const char *stage, esp_err_t error) {
+        Serial.printf("[Sentinel] %s: %s\n", stage, esp_err_to_name(error));
+        stop_wifi();
+        displayError("Wi-Fi start failed (see serial)", true);
+        return false;
+    };
     ensureWifiPlatform();
-    nvs_flash_init();
+    esp_err_t err = nvs_flash_init();
+    if (err != ESP_OK) return failed("nvs_init", err);
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_err_t err = esp_wifi_init(&cfg);
-    if (err != ESP_OK && err != ESP_ERR_WIFI_INIT_STATE) {
-        Serial.printf("[Sentinel] wifi_init: %s\n", esp_err_to_name(err));
-    }
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
+    err = esp_wifi_init(&cfg);
+    if (err != ESP_OK && err != ESP_ERR_WIFI_INIT_STATE) return failed("wifi_init", err);
+    err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (err != ESP_OK) return failed("wifi_storage", err);
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) return failed("wifi_mode", err);
     err = esp_wifi_start();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        Serial.printf("[Sentinel] wifi_start: %s\n", esp_err_to_name(err));
-    }
+    if (err != ESP_OK) return failed("wifi_start", err);
     esp_wifi_disconnect();
     wifi_promiscuous_filter_t filt = {};
     filt.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
-    esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous_rx_cb(wifi_rx);
+    err = esp_wifi_set_promiscuous_filter(&filt);
+    if (err != ESP_OK) return failed("wifi_filter", err);
+    err = esp_wifi_set_promiscuous_rx_cb(wifi_rx);
+    if (err != ESP_OK) return failed("wifi_callback", err);
     err = esp_wifi_set_promiscuous(true);
+    if (err != ESP_OK) return failed("wifi_monitor", err);
     bool on = false;
-    esp_wifi_get_promiscuous(&on);
-    if (err != ESP_OK || !on) {
-        displayError("Monitor mode refused on this radio", true);
-        esp_wifi_set_promiscuous_rx_cb(nullptr);
-        esp_wifi_set_promiscuous(false);
-        esp_wifi_stop();
-        wifiDisconnect();
-        return false;
-    }
+    err = esp_wifi_get_promiscuous(&on);
+    if (err != ESP_OK || !on) return failed("wifi_monitor_state", err != ESP_OK ? err : ESP_FAIL);
     if (g_ui_channel < 1 || g_ui_channel > 11) g_ui_channel = 1;
     if (!tune_watch_channel(g_ui_channel)) {
-        select_exposure(0);
-        esp_wifi_set_promiscuous(false);
-        esp_wifi_set_promiscuous_rx_cb(nullptr);
-        esp_wifi_stop();
-        wifiDisconnect();
+        stop_wifi();
         displayError("Cannot tune watch channel", true);
         return false;
     }
+    RAM_LOG("sentinel-wifi-on");
     g_wifi_capture = true;
     g_reset_window = true;
     return true;
@@ -1260,9 +1263,13 @@ void stop_wifi() {
     esp_wifi_set_promiscuous_rx_cb(nullptr);
     esp_wifi_stop();
     wifiDisconnect();
+    // This driver was initialized directly, not necessarily through Arduino WiFi.
+    // Arduino's WIFI_OFF shortcut alone may therefore leave its allocations alive.
+    esp_wifi_deinit();
 }
 
 bool start_ble() {
+    RAM_LOG("sentinel-ble-pre");
     if (!ble_scan_setup() || pBLEScan == nullptr) {
         displayError("BLE scan did not start", true);
         return false;
@@ -1509,6 +1516,14 @@ void hop_channel(bool wifi_on) {
 }
 
 void sentinel_watch(WatchMode mode) {
+    RAM_LOG("sentinel-entry");
+#if defined(FENRIR_EBYTE)
+    // Reclaim prior radio/WebUI state before allocating the watch tables/worker.
+    cleanlyStopWebUiForWiFiFeature();
+    stopBLEStack();
+    stop_wifi();
+    RAM_LOG("sentinel-clean");
+#endif
     if (!ensureSentinelRam()) {
         displayError("Not enough RAM", true);
         return;
@@ -1524,6 +1539,7 @@ void sentinel_watch(WatchMode mode) {
         return;
     }
 
+    RAM_LOG("sentinel-worker");
     bool wifi_on = false;
     bool ble_on = false;
     bool wifi_allowed = mode != WatchMode::Ble;
