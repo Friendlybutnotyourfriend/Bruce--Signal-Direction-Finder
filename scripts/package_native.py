@@ -7,9 +7,10 @@ from pathlib import Path
 import subprocess
 
 TARGETS = {
-    'ES3C28P': ('CBD-2.8-ES3C28P', 'partitions_native_16Mb.csv'),
-    'm5stack-cardputer': ('Cardputer-ADV', 'custom_8Mb.csv'),
-    'lilygo-t-embed-cc1101': ('T-Embed-CC1101', 'partitions_native_16Mb.csv'),
+    'ES3C28P': ('CBD-2.8-ES3C28P', 'partitions_native_16Mb.csv', 9),
+    'm5stack-cardputer': ('Cardputer-ADV', 'custom_8Mb.csv', 9),
+    'lilygo-t-embed-cc1101': ('T-Embed-CC1101', 'partitions_native_16Mb.csv', 9),
+    'nm-cyd-c5': ('NM-CYD-C5', 'custom_8Mb.csv', 23),
 }
 
 def main():
@@ -25,11 +26,11 @@ def main():
     if identity['dirty'] or dirty or identity['commit'] != commit or identity['environment'] != args.env:
         raise SystemExit('Refusing dirty, stale or mismatched build')
     image = (build / 'firmware.bin').read_bytes()
-    if len(image) < 256 or image[0] != 0xE9 or int.from_bytes(image[12:14], 'little') != 9:
-        raise SystemExit('Not an ESP32-S3 app image')
+    label, partitions, chip_id = TARGETS[args.env]
+    if len(image) < 256 or image[0] != 0xE9 or int.from_bytes(image[12:14], 'little') != chip_id:
+        raise SystemExit(f'Not an application image for {args.env} (expected chip ID {chip_id})')
     if identity['build_id'].encode() not in image or identity['version'].encode() not in image:
         raise SystemExit('Embedded identity mismatch')
-    label, partitions = TARGETS[args.env]
     sizes = [int(row[4].strip(), 0) for row in csv.reader((root / partitions).read_text().splitlines())
              if row and not row[0].startswith('#') and len(row) >= 5 and row[1].strip() == 'app']
     size = min(sizes)
@@ -51,10 +52,11 @@ def main():
         dependencies.append(entry)
     digest = hashlib.sha256(image).hexdigest()
     identity.update(file=name, sha256=digest, bytes=len(image), app_partition_bytes=size,
-                    headroom_bytes=size-len(image), hardware_tested=False, image_type='application-only', dependencies=dependencies)
+                    headroom_bytes=size-len(image), hardware_tested=False, image_type='application-only', chip_id=chip_id, dependencies=dependencies)
     (args.output / f'{label}-manifest.json').write_text(json.dumps(identity, indent=2)+'\n')
     (args.output / f'{label}-SHA256.txt').write_text(f'{digest}  {name}\n')
-    (args.output / 'READ-ME.md').write_text((root / 'docs/native-1.17.md').read_text())
+    readme = 'docs/nm-cyd-c5-1.17.md' if args.env == 'nm-cyd-c5' else 'docs/native-1.17.md'
+    (args.output / 'READ-ME.md').write_text((root / readme).read_text())
     print(f'{name}: {len(image)} bytes; partition headroom {size-len(image)} bytes')
 
 if __name__ == '__main__':

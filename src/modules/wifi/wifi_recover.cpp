@@ -725,7 +725,9 @@ static IRAM_ATTR __attribute__((optimize("O3"), hot)) void pbkdf2_precomp(
         T[3] ^= U[3];
         T[4] ^= U[4];
     }
-    sha1_extract(T, out + 20);
+    // The 32-byte result only has room for 12 bytes of the second SHA-1 block.
+    sha1_extract(T, U8);
+    memcpy(out + 20, U8, 12);
 }
 
 /* ─────────────────────────────────────────────────────────────
