@@ -46,11 +46,11 @@ jobs:
           python -m pip install platformio==6.2.0
       - name: Fenrir full
         id: full
-        continue-on-error: true
         run: |
           pio run -e fenrir-ebyte
           python scripts/package_fenrir.py --env fenrir-ebyte
       - name: Fenrir Launcher
+        if: success() || failure()
         run: |
           pio run -e LAUNCHER_fenrir-ebyte
           python scripts/package_fenrir.py --env LAUNCHER_fenrir-ebyte

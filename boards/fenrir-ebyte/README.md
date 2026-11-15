@@ -19,7 +19,8 @@ E07 tools are limited to 425–450.5 MHz.
   features (including scripting, several NFC/network and advanced RF tools).
   Install through compatible Launcher from SD. Maximum app size 0x270000 bytes;
   actual installation also requires a sufficiently large free slot.
-- Full-USB.bin: full build, merged bootloader/partition/app; USB flash at 0x0.
+- Full-USB.bin: standalone build with JavaScript interpreter excluded to fit 4 MB;
+  custom tools retained. Merged bootloader/partition/app; USB flash at 0x0.
   This replaces Launcher and its partition layout. Back up files and settings first.
 - Full-App.bin: full application only, intended for the standalone full partition
   at 0x10000, NOT the 4 MB Launcher layout.
