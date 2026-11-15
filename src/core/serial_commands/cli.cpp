@@ -31,9 +31,18 @@ void cliErrorCallback(cmd_error *e) {
     }
 }
 
-SerialCli::SerialCli() { setup(); }
+SerialCli::SerialCli() {
+#ifndef BRUCE_DEFER_SERIAL_CLI
+    setup();
+#endif
+}
 
 void SerialCli::setup() {
+#ifdef BRUCE_DEFER_SERIAL_CLI
+    // Registration owns many small heap allocations. Do it only for an actual
+    // command, and once even if the serial task and a UI shortcut arrive together.
+    std::call_once(_setupOnce, [this]() {
+#endif
     _cli.setOnError(cliErrorCallback);
 
     createCryptoCommands(&_cli);
@@ -64,4 +73,7 @@ void SerialCli::setup() {
     createLedCommands(&_cli);
 #endif
     createSoundCommands(&_cli);
+#ifdef BRUCE_DEFER_SERIAL_CLI
+    });
+#endif
 }
