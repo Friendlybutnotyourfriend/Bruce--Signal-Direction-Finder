@@ -70,7 +70,7 @@
 // - Google FastPair for all other Android devices
 // ============================================================================
 
-static const char *SAMSUNG_MAC_OUIS[] = {
+static const char *const SAMSUNG_MAC_OUIS[] = {
     "00:02:78", "00:21:19", "00:26:37", "20:64:32", "38:AA:3C", "50:CC:F8",
     "5C:0A:5B", "5C:A3:9D", "78:D6:F0", "84:0B:2D", "90:18:7C", "98:0C:82",
     "A0:0B:BA", "A8:CA:B9", "B4:07:F9", "CC:3A:61", "DC:71:44", "FC:1F:19",

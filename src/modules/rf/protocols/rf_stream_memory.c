@@ -10,7 +10,7 @@ typedef struct {
     void *p;
     size_t n;
 } Allocation;
-static Allocation allocated[512];
+static Allocation *allocated;
 static size_t used, total;
 static int active;
 static jmp_buf escape;
@@ -29,6 +29,14 @@ static void track(void *p, size_t n) {
     if (!p || used == 512 || n > 1048576 - total) {
         free(p);
         rf_stream_memory_fail();
+    }
+    // Allocate after the caller establishes setjmp, so failure can unwind safely.
+    if (!allocated) {
+        allocated = calloc(512, sizeof(*allocated));
+        if (!allocated) {
+            free(p);
+            rf_stream_memory_fail();
+        }
     }
     allocated[used++] = (Allocation){p, n};
     total += n;
@@ -77,6 +85,8 @@ void rf_stream_memory_finish(void *keep) {
         if (allocated[i].p != keep) free(allocated[i].p);
     used = total = 0;
     active = 0;
+    free(allocated);
+    allocated = NULL;
 }
 
 #endif

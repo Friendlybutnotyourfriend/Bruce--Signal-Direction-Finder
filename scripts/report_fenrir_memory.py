@@ -18,12 +18,20 @@ for directory in ('lora', 'fm', 'ir', 'rfid'):
     if list((build / 'src/modules' / directory).rglob('*.o')):
         raise SystemExit(f'Excluded module still compiled: {directory}')
 ram = []
+ram_ranges = []
+for line in sections.splitlines():
+    fields = line.split()
+    if len(fields) == 3 and fields[0].startswith('.dram0.'):
+        length, address = int(fields[1]), int(fields[2])
+        ram_ranges.append((address, address + length))
 for line in symbols.splitlines():
     fields = line.split(None, 3)
-    if len(fields) == 4 and fields[2] in 'bBdD':
+    # Xtensa also labels some flash-mapped constants D: classify by section address.
+    if (len(fields) == 4 and fields[2] in 'bBdD'
+            and any(start <= int(fields[0], 16) < end for start, end in ram_ranges)):
         ram.append((int(fields[1], 16), fields[3]))
 ram.sort(reverse=True)
-report = ('Fenrir Lean1: excluded feature symbols and source objects absent.\n'
+report = ('Fenrir Lean2: excluded feature symbols and source objects absent.\n'
           'Static sections; runtime largest DMA block requires hardware measurement.\n\n'
           + sections + '\nLargest RAM symbols (bytes):\n'
           + '\n'.join(f'{count:8d}  {name}' for count, name in ram[:100]) + '\n')

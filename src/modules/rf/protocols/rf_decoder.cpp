@@ -12,6 +12,7 @@
 #include "rf_config.h"   // RF_DBG
 #include "rf_registry.h"
 #include "rf_registry_ext.h"
+#include <esp_heap_caps.h>
 #include <globals.h>
 
 // --- Decode tuning (mirrors the classic OOK receiver) ----------------------
@@ -88,18 +89,42 @@ static volatile uint32_t rf_m5_last_edge_us = 0;
 static volatile int rf_m5_count = 0;
 static volatile int rf_m5_ready_count = 0;
 static int rf_m5_pin = -1;
-static int rf_m5_buf[RF_MAX_CHANGES * 4];
+static constexpr int RF_M5_BUFFER_COUNT = RF_MAX_CHANGES * 4;
+static int *rf_m5_buf = nullptr;
+
+static bool rf_m5_buffer_acquire() {
+    if (!rf_m5_buf) {
+        // The GPIO ISR must never read PSRAM while the flash cache is disabled.
+        rf_m5_buf = static_cast<int *>(heap_caps_malloc(
+            RF_M5_BUFFER_COUNT * sizeof(int), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    return rf_m5_buf != nullptr;
+}
+
+static void rf_m5_buffer_release() {
+    portENTER_CRITICAL(&rf_m5_mux);
+    rf_m5_active = false;
+    int *buffer = rf_m5_buf;
+    rf_m5_buf = nullptr;
+    portEXIT_CRITICAL(&rf_m5_mux);
+    heap_caps_free(buffer);
+}
 
 static void IRAM_ATTR rf_m5_edge_isr() {
-    if (!rf_m5_active || rf_m5_ready_count > 0) return;
+    portENTER_CRITICAL_ISR(&rf_m5_mux);
+    if (!rf_m5_active || rf_m5_ready_count > 0 || !rf_m5_buf) {
+        portEXIT_CRITICAL_ISR(&rf_m5_mux);
+        return;
+    }
 
     uint32_t now = micros();
     bool level = digitalRead(rf_m5_pin);
     uint32_t dur = now - rf_m5_last_edge_us;
-    if (dur < RF_M5_RX_GLITCH_US) return;
-
-    portENTER_CRITICAL_ISR(&rf_m5_mux);
-    if (rf_m5_count < (int)(sizeof(rf_m5_buf) / sizeof(rf_m5_buf[0]))) {
+    if (dur < RF_M5_RX_GLITCH_US) {
+        portEXIT_CRITICAL_ISR(&rf_m5_mux);
+        return;
+    }
+    if (rf_m5_count < RF_M5_BUFFER_COUNT) {
         int idx = rf_m5_count;
         rf_m5_buf[idx] = rf_m5_last_level ? (int)dur : -(int)dur;
         rf_m5_count = idx + 1;
@@ -132,6 +157,7 @@ bool RfRxSession::begin(bool radioReady, size_t captureSymbols) {
     _bufSymbols = captureSymbols;
     if (bruceConfigPins.rfModule == M5_RF_MODULE) {
         if (!radioReady && !initRfModule("rx", bruceConfigPins.rfFreq)) return false;
+        if (!rf_m5_buffer_acquire()) return false;
 
         portENTER_CRITICAL(&rf_m5_mux);
         rf_m5_pin = bruceConfigPins.rfRx;
@@ -199,7 +225,7 @@ bool RfRxSession::poll(std::vector<int> &durations) {
         portEXIT_CRITICAL(&rf_m5_mux);
 
         if (ready == 0) return false;
-        _bufferFull = ready == int(sizeof(rf_m5_buf) / sizeof(rf_m5_buf[0]));
+        _bufferFull = ready == RF_M5_BUFFER_COUNT;
         rf_filter_m5_rx_glitches(durations);
 #if RF_DEBUG
         RF_DBG("M5 GPIO capture: %u durations", (unsigned)durations.size());
@@ -245,6 +271,7 @@ void RfRxSession::end() {
         rf_m5_pin = -1;
         portEXIT_CRITICAL(&rf_m5_mux);
         _m5Isr = false;
+        rf_m5_buffer_release();
     }
     if (_ch != nullptr) {
         rmt_disable(_ch);

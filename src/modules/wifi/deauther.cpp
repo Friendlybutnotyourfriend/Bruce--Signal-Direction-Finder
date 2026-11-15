@@ -62,7 +62,7 @@ static bool clientScanActive = false;
 // =============================================================================
 
 String getVendorFromMAC(const String &mac) {
-    static const std::pair<String, String> oui_list[] = {
+    static const std::pair<const char *, const char *> oui_list[] = {
         {"00:1A:2B", "Apple"    },
         {"00:1E:52", "Apple"    },
         {"00:25:00", "Apple"    },
