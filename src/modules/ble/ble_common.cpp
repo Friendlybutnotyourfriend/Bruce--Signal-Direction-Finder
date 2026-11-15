@@ -398,14 +398,13 @@ void disPlayBLESend() {
 void ble_test() {
     printf("ble test\n");
 
-    if (!is_ble_inited) {
-        printf("Init ble server\n");
-        if (!initBLEServer()) {
-            displayError("Failed to init BLE server");
-            return;
-        }
-        delay(100);
+    stopBLEStack();
+    if (BLEDevice::isInitialized()) return;
+    if (!initBLEServer()) {
+        stopBLEStack();
+        return;
     }
+    delay(100);
 
     disPlayBLESend();
 
