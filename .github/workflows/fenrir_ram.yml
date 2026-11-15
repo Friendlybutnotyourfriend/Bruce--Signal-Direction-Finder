@@ -46,6 +46,7 @@ jobs:
       - name: Lifecycle and Black Box regressions
         run: |
           python -m unittest discover -s tests -p 'test_ble_lifecycle.py'
+          python -m unittest discover -s tests -p 'test_radio_resources.py'
           g++ -std=c++11 -Wall -Wextra -Werror tests/nrf_blackbox_test.cpp -o /tmp/nrf-blackbox
           /tmp/nrf-blackbox
           g++ -std=c++11 -Wall -Wextra -Werror -Itests/stubs/lazy_ram -Isrc tests/lazy_ram_test.cpp -o /tmp/lazy-ram

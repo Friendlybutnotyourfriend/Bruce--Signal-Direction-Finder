@@ -85,11 +85,12 @@ buildModelOptions(NimBLERemoteCharacteristic *pTXChar, std::vector<Option> &devi
 
 BLENinebot::BLENinebot() { setup(); }
 BLENinebot::~BLENinebot() {
-    if (!scooterDisconnected) pClient->disconnect();
+    if (!scooterDisconnected && pClient) pClient->disconnect();
     if (pBLEScan) pBLEScan->clearResults();
     bruceBleDeinit(true);
     pBLEScan = nullptr;
     pClient = nullptr;
+    scooterDisconnected = true;
 }
 
 void BLENinebot::clientDisconnect() {
@@ -105,6 +106,7 @@ void BLENinebot::setup() {
 
     if (!bruceBleInit("")) return;
     pBLEScan = NimBLEDevice::getScan();
+    if (!pBLEScan) return;
     pBLEScan->setMaxResults(60);
     pBLEScan->setScanCallbacks(nullptr);
     pBLEScan->setActiveScan(true);
@@ -112,6 +114,7 @@ void BLENinebot::setup() {
     pBLEScan->setWindow(SCAN_WINDOW);
 
     pClient = NimBLEDevice::createClient();
+    if (!pClient) return;
     pClient->setClientCallbacks(new ScooterClientCallbacks(), false);
     pClient->setConnectTimeout(3);
 

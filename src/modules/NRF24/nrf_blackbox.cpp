@@ -90,7 +90,7 @@ public:
         NRFradio.flush_tx();
         NRFradio.flush_rx();
         for (uint8_t pipe = 0; pipe < 6; ++pipe) NRFradio.closeReadingPipe(pipe);
-        NRFradio.setDataRate(RF24_1MBPS);
+        if (!NRFradio.setDataRate(RF24_1MBPS)) return false;
         NRFradio.disableCRC();
         return true;
     }
@@ -124,8 +124,8 @@ void draw(const Recorder &recorder, size_t age, const char *status) {
     const size_t peak = f->peak();
     tft.drawString(String(age ? "History " : "Live ") + String(f->startMs / 1000) + "s  " +
                    String(f->spanMs) + "ms window", 4, 23);
-    tft.drawString(String("Peak ") + String(2400 + peak) + " MHz  " + String(f->percent(peak)) +
-                   "% hits", 4, 39);
+    tft.drawString(f->percent(peak) ? String("Peak ") + String(2400 + peak) + " MHz  " +
+                   String(f->percent(peak)) + "% hits" : String("No above-threshold hits"), 4, 39);
     const int top = 61, bottom = tftHeight - 67, width = tftWidth - 8;
     for (size_t ch = 0; ch < Channels; ++ch) {
         const int x = 4 + ch * width / Channels;

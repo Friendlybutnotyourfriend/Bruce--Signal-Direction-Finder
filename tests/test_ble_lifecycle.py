@@ -38,6 +38,7 @@ static bool deviceConnected=false,oldDeviceConnected=false,bleDataTransferEnable
 struct Hid { void end(){} }; static Hid *hid_ble=nullptr; int activeBLEInstances=0;
 struct SerialType { void println(const char*){} } Serial;
 void displayError(const char*,bool){}
+void cleanlyStopWebUiForWiFiFeature(){}
 void wifiDisconnect(){++wifiStops;}
 bool radioHasMemForBle(){++guardCalls;return budget;}
 enum Status { ESP_BT_CONTROLLER_STATUS_IDLE, ESP_BT_CONTROLLER_STATUS_INITED, ESP_BT_CONTROLLER_STATUS_ENABLED };
@@ -53,7 +54,7 @@ struct BLEDevice {
 }; bool BLEDevice::active=false;
 struct BLEStateManager {static void resetState(){++resets;}};
 static void (*shutdownHook)()=nullptr;
-void hook(){++hookCalls;assert(BLEDevice::active);}
+void hook(){++hookCalls;assert(!BLEDevice::active);}
 '''
         bodies = '\n'.join(function(source, x) for x in [
             'void bruceBleShutdownHook(', 'bool bruceBleDeinit(',

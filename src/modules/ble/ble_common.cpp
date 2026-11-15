@@ -7,6 +7,7 @@
 #include "core/ram_profile.h"
 #include "core/utils.h"
 #include "core/wifi/wifi_common.h"
+#include "core/wifi/webInterface.h"
 #include "esp_mac.h"
 #include "modules/badusb_ble/ducky_typer.h"
 #if !defined(LITE_VERSION)
@@ -96,15 +97,14 @@ static void (*shutdownHook)() = nullptr;
 void bruceBleShutdownHook(void (*hook)()) { shutdownHook = hook; }
 
 bool bruceBleDeinit(bool clearAll) {
-    // Detach background services before destroying the characteristics they use.
+    // Quiesce host callbacks without deleting their objects. Services may still
+    // hold characteristics until their background tasks are detached below.
+    if (BLEDevice::isInitialized() && !BLEDevice::deinit(false)) return false;
     if (shutdownHook) {
         auto hook = shutdownHook;
         shutdownHook = nullptr;
         hook();
     }
-    // Stop first without deleting objects: NimBLE's clearAll path also deletes
-    // them when host shutdown fails, which would leave live callbacks dangling.
-    if (BLEDevice::isInitialized() && !BLEDevice::deinit(false)) return false;
     pBLEScan = nullptr;
     if (clearAll) {
         BLEDevice::deinit(true);
@@ -136,7 +136,10 @@ void stopBLEStack() {
 bool bruceBleInit(const std::string &name) {
     // The startup budget is not a requirement for reusing an existing stack.
     if (BLEDevice::isInitialized()) return true;
-    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) wifiDisconnect();
+    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) {
+        cleanlyStopWebUiForWiFiFeature();
+        wifiDisconnect();
+    }
     if (!radioHasMemForBle()) {
         displayError("Low RAM: BLE not started", true);
         return false;

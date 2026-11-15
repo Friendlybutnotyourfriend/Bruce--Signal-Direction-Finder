@@ -3293,6 +3293,8 @@ std::vector<FastPairDeviceInfo> FastPairExploitEngine::scanForFastPairDevices(in
     NimBLEScan *pScan = NimBLEDevice::getScan();
     if (!pScan) return discoveredDevices;
 
+    pScan->setMaxResults(80);
+    pScan->setScanCallbacks(nullptr);
     pScan->setActiveScan(true);
     pScan->setInterval(97);
     pScan->setWindow(67);
@@ -3920,7 +3922,9 @@ void BLE_Sniffer() {
                     displayError("Failed to init scanner");
                     return;
                 }
-                pScan->setActiveScan(true);
+                pScan->setMaxResults(80);
+    pScan->setScanCallbacks(nullptr);
+    pScan->setActiveScan(true);
                 pScan->setInterval(97);
                 pScan->setWindow(67);
                 pScan->setDuplicateFilter(false);
@@ -4176,6 +4180,8 @@ String selectTargetFromScan(const char *title) {
             displayError("Failed to get scanner");
             return "";
         }
+        g_pBLEScan->setMaxResults(80);
+        g_pBLEScan->setScanCallbacks(nullptr);
         g_pBLEScan->setActiveScan(true);
         g_pBLEScan->setInterval(SCAN_INT);
         g_pBLEScan->setWindow(SCAN_WINDOW);
@@ -4873,8 +4879,7 @@ const char *getScanTitle(int attackIndex) {
 }
 
 void executeAttackWithTargetScan(int attackIndex) {
-    // FIX: Ensure BLE is initialized for the attack
-    if (!BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9)) return false;
+    if (!BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9)) return;
 
     String targetInfo = selectTargetFromScan(getScanTitle(attackIndex));
     if (targetInfo.isEmpty()) return;
