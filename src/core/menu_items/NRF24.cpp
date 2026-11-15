@@ -6,12 +6,14 @@
 #include "modules/NRF24/nrf_jammer.h"
 #include "modules/NRF24/nrf_mousejack.h"
 #include "modules/NRF24/nrf_spectrum.h"
+#include "modules/NRF24/nrf_blackbox.h"
 
 void NRF24Menu::optionsMenu() {
     options.clear();
     options.push_back({"Information", nrf_info});
     options.push_back({"Radio Control", []() { RadioControl::nrfMenu(); }});
     options.push_back({"Spectrum", nrf_spectrum});
+    options.push_back({"2.4 GHz Black Box", nrf_blackbox});
     #if !defined(LITE_VERSION)
     options.push_back({"MouseJack", nrf_mousejack});
     #endif

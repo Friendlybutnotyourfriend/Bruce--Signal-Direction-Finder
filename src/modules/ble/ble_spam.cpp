@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 /**
  * ble_spam.cpp — BLE Spam Module for Bruce Firmware
  *
@@ -502,14 +503,14 @@ void ibeacon(const char *DeviceName, const char *BEACON_UUID, int ManufacturerId
 
     // Same DMA-memory guard as bleSpamInitAdvertiser: a half-initialized
     // controller crashes on the first advertisement call
-    if (!radioHasMemForBle()) {
+    if (!NimBLEDevice::isInitialized() && !radioHasMemForBle()) {
         displayError("Low RAM: free WiFi/SD first", true);
         return;
     }
 
     // FIX: Always init - if already init'd, it's a no-op
     // This handles the case where another module deinit'd the stack
-    BLEDevice::init(DeviceName);
+    if (!bruceBleInit(DeviceName)) return;
     vTaskDelay(5 / portTICK_PERIOD_MS);
     esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, MAX_TX_POWER);
 
@@ -553,7 +554,7 @@ void ibeacon(const char *DeviceName, const char *BEACON_UUID, int ManufacturerId
     }
 
     // Deinit the BLE stack - self-contained module
-    BLEDevice::deinit();
+    bruceBleDeinit();
     Serial.println("[iBeacon] BLE stack deinitialized");
 }
 
@@ -1549,7 +1550,7 @@ static bool bleSpamInitAdvertiser(
     // BLE controller init mallocs a big contiguous DMA block; on low-memory
     // boards (e.g. after Wi-Fi/SD churn) it fails half-initialized and the
     // first advertisement call crashes. Same guard as BLE_Suite/ble_common.
-    if (!radioHasMemForBle()) {
+    if (!NimBLEDevice::isInitialized() && !radioHasMemForBle()) {
         displayError("Low RAM: free WiFi/SD first", true);
         return false;
     }
@@ -1562,7 +1563,7 @@ static bool bleSpamInitAdvertiser(
     }
 
     // FIX: Always init - if already init'd, it's a no-op
-    BLEDevice::init("");
+    if (!bruceBleInit("")) return false;
     vTaskDelay(5 / portTICK_PERIOD_MS);
 
     pAdvertising = BLEDevice::getAdvertising();
@@ -1607,7 +1608,7 @@ static void bleSpamDeinitAdvertiser() {
     NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_PUBLIC);
 #endif
     // FIX: Always deinit - self-contained module
-    BLEDevice::deinit();
+    bruceBleDeinit();
 }
 
 // CHANGED: replaces the old bleSpamRestartAdvertiserForMac which did a full deinit/init.

@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 /*
  * BLE Sniffer - Standalone module for LITE_VERSION
  * Author: Ninja-jr
@@ -104,7 +105,7 @@ void BLE_Sniffer() {
                 pSnifferScan = nullptr;
             }
             if (bleInitialized) {
-                NimBLEDevice::deinit(true);
+                bruceBleDeinit(true);
                 bleInitialized = false;
             }
             break;
@@ -114,12 +115,12 @@ void BLE_Sniffer() {
             isCapturing = !isCapturing;
             if (isCapturing) {
                 if (firstRun) {
-                    NimBLEDevice::init("BruceSniffer");
+                    if (!bruceBleInit("BruceSniffer")) return;
                     vTaskDelay(10 / portTICK_PERIOD_MS);
                     pSnifferScan = NimBLEDevice::getScan();
                     if (!pSnifferScan) {
                         displayError("Failed to init scanner");
-                        NimBLEDevice::deinit(true);
+                        bruceBleDeinit(true);
                         break;
                     }
                     pSnifferScan->setActiveScan(true);

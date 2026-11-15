@@ -238,6 +238,20 @@ static bool ensureReconRam() {
     if (!lazyRam(memAssociation)) return false;
     return true;
 }
+static void releaseReconRam() {
+    releaseLazyRam(memHunter);
+    releaseLazyRam(memSniffer);
+    releaseLazyRam(memUiHunter);
+    releaseLazyRam(memUiSniffer);
+    releaseLazyRam(memUiFrozen);
+    releaseLazyRam(memAssociation);
+}
+struct ReconSession {
+    ~ReconSession() {
+        stopBLEStack(); // Quiesce callbacks before releasing their state.
+        if (!NimBLEDevice::isInitialized()) releaseReconRam();
+    }
+};
 #define hunterState (*memHunter)
 #define snifferState (*memSniffer)
 #define uiHunterSnap (*memUiHunter)
@@ -868,8 +882,7 @@ void recordReconVoiceNote() {
 #endif
 
 void huntTarget(const BleObservation &t) {
-    ble_scan_setup();
-    if (!pBLEScan) {
+    if (!ble_scan_setup() || !pBLEScan) {
         displayError("BLE scanner unavailable", true);
         return;
     }
@@ -1038,8 +1051,7 @@ void huntTarget(const BleObservation &t) {
 }
 std::vector<BleObservation> discoverTargets(bool active) {
     std::vector<BleObservation> out;
-    ble_scan_setup();
-    if (!pBLEScan) return out;
+    if (!ble_scan_setup() || !pBLEScan) return out;
     pBLEScan->stop();
     pBLEScan->clearResults();
     pBLEScan->setActiveScan(active);
@@ -1574,8 +1586,7 @@ void showGatt(const GattResult &r, const String &identity) {
     }
 }
 void sniffTarget(const BleObservation &t) {
-    ble_scan_setup();
-    if (!pBLEScan) {
+    if (!ble_scan_setup() || !pBLEScan) {
         displayError("BLE scanner unavailable", true);
         return;
     }
@@ -1742,6 +1753,7 @@ void sniffTarget(const BleObservation &t) {
 } // namespace
 
 void bleHunterV3() {
+    ReconSession session;
     if (!ensureReconRam()) {
         displayError("Not enough RAM", true);
         return;
@@ -1766,6 +1778,7 @@ void bleHunterV3() {
     stopBLEStack();
 }
 void bleSnifferV3() {
+    ReconSession session;
     if (!ensureReconRam()) {
         displayError("Not enough RAM", true);
         return;

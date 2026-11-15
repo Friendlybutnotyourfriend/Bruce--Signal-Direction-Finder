@@ -43,27 +43,10 @@ static void IRAM_ATTR jd_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     if (ftype == 0x00 && (fsub == 0x0C || fsub == 0x0A)) jd_deauth++;
 }
 
-static void jd_start_wifi() {
-    ensureWifiPlatform();
-    nvs_flash_init();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_err_t e = esp_wifi_init(&cfg);
-    if (e != ESP_OK && e != ESP_ERR_WIFI_INIT_STATE)
-        Serial.printf("[JamDetect] wifi_init: %s\n", esp_err_to_name(e));
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    e = esp_wifi_start();
-    if (e != ESP_OK && e != ESP_ERR_WIFI_INIT_STATE)
-        Serial.printf("[JamDetect] wifi_start: %s\n", esp_err_to_name(e));
-    esp_wifi_disconnect(); // drop any STA association so channel hopping isn't locked to one channel
-    esp_wifi_set_promiscuous(true);
-    // CRITICAL: deauth/disassoc are management frames — capture MGMT (+DATA for
-    // an activity reference). Without this the default filter may drop them.
-    wifi_promiscuous_filter_t filt = {};
-    filt.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA;
-    esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous_rx_cb(jd_rx_cb);
+static bool jd_start_wifi() {
+    return startWifiMonitor(jd_rx_cb, WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA);
 }
+
 
 static void jd_stop_wifi() {
     esp_wifi_set_promiscuous(false);
@@ -103,7 +86,7 @@ void jam_detect_setup() {
         return;
     }
 
-    jd_start_wifi();
+    if (!jd_start_wifi()) return;
     view.commit(lvl, JD_CHANNELS[0]);
     view.status("CH" + String(JD_CHANNELS[0]) + " scanning  thr" + String(threshold) + "/s");
 

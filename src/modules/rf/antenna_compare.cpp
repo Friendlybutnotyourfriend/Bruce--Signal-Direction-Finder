@@ -118,8 +118,7 @@ String safeName(String s) {
 void rf_antenna_compare(bool ble) {
     float frequency = 0;
     if (ble) {
-        ble_scan_setup();
-        if (!pBLEScan) return;
+        if (!ble_scan_setup() || !pBLEScan) return;
         pBLEScan->setActiveScan(false); pBLEScan->setMaxResults(40);
         displayTextLine("Choose a fixed BLE reference beacon");
         const auto devices = pBLEScan->getResults(5000, false);

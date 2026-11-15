@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 #include "antenna_id.h"
 
 #include "core/display.h"
@@ -236,8 +237,10 @@ BleResult runBleSurvey() {
 
     wifiDisconnect();
     stopBLEStack();
-    NimBLEDevice::init("HUGINN-Antenna-Survey");
+    if (!bruceBleInit("HUGINN-Antenna-Survey")) return result;
     NimBLEScan *scanner = NimBLEDevice::getScan();
+    scanner->setMaxResults(MAX_IDENTITIES);
+    scanner->setScanCallbacks(nullptr);
     scanner->setActiveScan(false);
     scanner->setInterval(160);
     scanner->setWindow(120);
@@ -280,7 +283,7 @@ BleResult runBleSurvey() {
 
     scanner->stop();
     scanner->clearResults();
-    NimBLEDevice::deinit(true);
+    bruceBleDeinit(true);
     BLEConnected = false;
     return result;
 }

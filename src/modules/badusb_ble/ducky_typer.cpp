@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 #if !defined(LITE_VERSION)
 #include "ducky_typer.h"
 #include "core/display.h"
@@ -105,7 +106,7 @@ void cleanupDuckyBLE(HIDInterface *&hid) {
     // Only deinit BLE when NO instances are left (safety)
     if (activeBLEInstances == 0 && NimBLEDevice::isInitialized()) {
         Serial.println("[cleanupDuckyBLE] Last instance, ensuring BLE deinit...");
-        NimBLEDevice::deinit();
+        bruceBleDeinit();
         delay(50);
         Serial.println("[cleanupDuckyBLE] BLE stack deinitialized");
     }
@@ -132,7 +133,7 @@ void safeCleanupDuckyBLE(HIDInterface *&hid) {
     // Extra safety: if BLE is still initialized, force deinit
     if (NimBLEDevice::isInitialized()) {
         Serial.println("[safeCleanupDuckyBLE] Force deinitializing BLE...");
-        NimBLEDevice::deinit();
+        bruceBleDeinit();
         delay(200);
     }
 
@@ -629,7 +630,7 @@ void ducky_startKb(HIDInterface *&hid, bool ble, int functionId) {
     if (hid == nullptr) {
         Serial.printf("Creating new HID instance for BLE=%d\n", ble);
         if (ble) {
-            if (!radioHasMemForBle()) {
+            if (!NimBLEDevice::isInitialized() && !radioHasMemForBle()) {
                 displayError("Low RAM: free WiFi/SD first", true);
                 returnToMenu = true;
                 return;
@@ -655,7 +656,7 @@ void ducky_startKb(HIDInterface *&hid, bool ble, int functionId) {
             // Check if BLE needs initialization
             if (!NimBLEDevice::isInitialized()) {
                 Serial.println("[ducky_startKb] Initializing BLE stack...");
-                NimBLEDevice::init(std::string(deviceName.c_str()));
+                if (!bruceBleInit(deviceName.c_str())) return;
                 Serial.println("[ducky_startKb] BLE stack initialized");
                 delay(50);
             } else {

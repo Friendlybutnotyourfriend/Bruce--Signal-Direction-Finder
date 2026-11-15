@@ -1,3 +1,38 @@
+# Fenrir Black Box / Stability1 candidate
+
+This is a full standalone 4 MB Fenrir build. Hardware qualification is pending.
+Use `Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin` at offset `0x0` for USB installation.
+
+## nRF24 2.4 GHz Black Box
+
+Open **NRF24 > 2.4 GHz Black Box**. It passively samples channel centres 2400–2483 MHz,
+keeps 12 completed windows in RAM and records CSV to `/Bruce/NRFBlackBox` when SD is available.
+SEL marks the current window; UP/DOWN selects recent history while recording continues; ESC exits.
+The log stops at 16 MiB or a write failure and the display reports that recording has stopped.
+Live measurement continues without SD. Hardware disconnection stops the session.
+
+The detector reports sampled energy above the chip's nominal -64 dBm threshold, not RSSI,
+packets, protocol, source identity, or antenna gain. Front-end gain affects the antenna-level
+threshold. It samples channels sequentially, with gaps for display and SD writes. CSV includes
+actual window duration and per-channel sample counts. A rise marker means at least one channel
+changed from below 20% to at least 40% hits; it is not a threat classification.
+Wi-Fi and BLE on this board are stopped during capture. Auto-ACK is disabled and no packets are sent.
+
+## Stability changes
+
+- Common BLE startup handles insufficient RAM, initialization failure, and reuse of an already running stack.
+- SDK-owned shutdown replaces the private initialization flag; background BLE API services stop before objects are freed.
+- Sentinel uses callback-only scanning; discovery scans have explicit limits.
+- Recon working memory is freed on exit. Sentinel frees working tables after a watch and retains findings only inside its menu.
+- Channel Analyzer, Jam Detect and Wi-Fi Sniffer stop cleanly on startup failure.
+- Direct Wi-Fi drivers are deinitialized during radio switching. Sentinel can fall back to Wi-Fi after BLE refuses to start.
+
+Before hardware qualification: test BLE first after reset, then repeated Wi-Fi/BLE/Hunter/Sniffer/API switches,
+Sentinel alternate mode, Black Box with and without SD, SD write failure/cap, nRF unplug/replug,
+and return to existing RF/NRF tools. Automated host tests do not simulate ESP32 heap fragmentation or real radio timing.
+
+---
+
 # Fenrir — standalone Bruce 1.17 RAM Fix2
 
 Target: ESP32-2432S028R-PLUS-RF, matching your board photo.
@@ -5,13 +40,13 @@ Classic ESP32, 4 MB flash, ST7789 display, E07/E01 radio daughterboard.
 No Launcher is required or included.
 
 ## Files
-Bruce-1.17-Fenrir-RAM-Fix2-Full-USB.bin
+Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin
   Complete standalone image: bootloader, partition table and firmware.
   Flash at offset 0x0 using a compatible ESP32 USB flasher.
   Back up existing settings/internal files first: this writes across NVS and
   installs the standalone partition layout.
 
-Bruce-1.17-Fenrir-RAM-Fix2-Full-App.bin
+Bruce-1.17-Fenrir-BlackBox-Stability1-Full-App.bin
   Application-only update. Flash at 0x10000 ONLY if the existing partition
   table matches: factory app offset 0x10000, size 0x3C0000; filesystem offset
   0x3D0000, size 0x30000. This is the saved Fenrir standalone layout.
@@ -57,7 +92,7 @@ Close the serial monitor with Ctrl+] before flashing. For a complete standalone
 install, save the Full-USB BIN directly in Downloads and run (overwrites settings):
 
 ```powershell
-py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-RAM-Fix2-Full-USB.bin"
+py -m esptool --chip esp32 --port COM12 --baud 460800 write_flash 0x0 "$env:USERPROFILE\Downloads\Bruce-1.17-Fenrir-BlackBox-Stability1-Full-USB.bin"
 py -m serial.tools.miniterm --dtr 0 --rts 0 COM12 115200
 ```
 

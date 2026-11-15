@@ -1,4 +1,7 @@
 #include "ble_common.h"
+#if defined(CONFIG_IDF_TARGET_ESP32)
+#include <esp_bt.h>
+#endif
 #include "core/mykeyboard.h"
 #include "core/radio_mem.h"
 #include "core/ram_profile.h"
@@ -88,71 +91,74 @@ class AdvertisedDeviceCallbacks : public NimBLEScanCallbacks {};
 
 static AdvertisedDeviceCallbacks g_scanCallbacks;
 
-static bool is_ble_inited = false;
+static void (*shutdownHook)() = nullptr;
+
+void bruceBleShutdownHook(void (*hook)()) { shutdownHook = hook; }
+
+bool bruceBleDeinit(bool clearAll) {
+    // Detach background services before destroying the characteristics they use.
+    if (shutdownHook) {
+        auto hook = shutdownHook;
+        shutdownHook = nullptr;
+        hook();
+    }
+    // Stop first without deleting objects: NimBLE's clearAll path also deletes
+    // them when host shutdown fails, which would leave live callbacks dangling.
+    if (BLEDevice::isInitialized() && !BLEDevice::deinit(false)) return false;
+    pBLEScan = nullptr;
+    if (clearAll) {
+        BLEDevice::deinit(true);
+        pServer = nullptr;
+        pService = nullptr;
+        pTxCharacteristic = nullptr;
+        pRxCharacteristic = nullptr;
+    }
+#if !defined(LITE_VERSION)
+    BLEStateManager::resetState();
+#endif
+    deviceConnected = oldDeviceConnected = bleDataTransferEnabled = BLEConnected = false;
+    return true;
+}
 
 void stopBLEStack() {
-    if (pBLEScan) {
-        pBLEScan->stop();
-        pBLEScan->clearResults();
-        pBLEScan = nullptr;
-    }
-
-    if (is_ble_inited) {
-#if !defined(LITE_VERSION)
-        if (BLEStateManager::isBLEActive() || BLEStateManager::getActiveClientCount() > 0) {
-            BLEStateManager::deinitBLE(true);
-        } else
-#endif
-            if (BLEDevice::getScan() != nullptr || BLEDevice::getAdvertising() != nullptr ||
-                BLEDevice::getServer() != nullptr || BLEConnected) {
-            BLEDevice::deinit();
-        }
-    }
-
-    pServer = nullptr;
-    pService = nullptr;
-    pTxCharacteristic = nullptr;
-    pRxCharacteristic = nullptr;
-    deviceConnected = false;
-    oldDeviceConnected = false;
-    bleDataTransferEnabled = false;
-    is_ble_inited = false;
-    BLEConnected = false;
 #if !defined(LITE_VERSION)
     if (hid_ble) {
+        hid_ble->end();
         delete hid_ble;
         hid_ble = nullptr;
+        extern int activeBLEInstances;
+        activeBLEInstances = 0;
     }
 #endif
+    if (!bruceBleDeinit(true)) Serial.println("[BLE] shutdown failed; retained live objects");
+}
+
+bool bruceBleInit(const std::string &name) {
+    // The startup budget is not a requirement for reusing an existing stack.
+    if (BLEDevice::isInitialized()) return true;
+    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) wifiDisconnect();
+    if (!radioHasMemForBle()) {
+        displayError("Low RAM: BLE not started", true);
+        return false;
+    }
+    if (!BLEDevice::init(name)) {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+        // NimBLE can fail after controller init but before host initialization.
+        if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED)
+            esp_bt_controller_disable();
+        if (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_INITED)
+            esp_bt_controller_deinit();
+#endif
+        Serial.println("[BLE] NimBLE initialization failed");
+        displayError("BLE init failed (see serial)", true);
+        return false;
+    }
+    return true;
 }
 
 bool ble_scan_setup() {
-    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) {
-        if (WiFi.getMode() != WIFI_MODE_NULL || wifiConnected) {
-            wifiDisconnect();
-            delay(200);
-        }
-
-        stopBLEStack();
-        delay(100);
-    }
-
     RAM_LOG("ble-scan pre-init");
-
-    // FIX: Always try to init - if already init'd, it's a no-op
-    if (!radioHasMemForBle()) {
-        displayError("Low RAM: free WiFi/SD first", true);
-        returnToMenu = true;
-        return false;
-    }
-
-    if (!BLEDevice::init("")) {
-        Serial.println("[BLE] NimBLE initialization failed");
-        displayError("BLE init failed (see serial)", true);
-        returnToMenu = true;
-        return false;
-    }
-    is_ble_inited = true;
+    if (!bruceBleInit("")) return false;
 
     RAM_LOG("ble-scan post-init");
     pBLEScan = BLEDevice::getScan();
@@ -161,6 +167,9 @@ bool ble_scan_setup() {
         return false;
     }
 
+    pBLEScan->stop();
+    pBLEScan->clearResults();
+    pBLEScan->setMaxResults(MAX_DISPLAY_DEVICES);
     pBLEScan->setScanCallbacks(&g_scanCallbacks);
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(SCAN_INT);
@@ -234,7 +243,7 @@ void ble_scan() {
         if (options.size() >= MAX_DISPLAY_DEVICES) { options.emplace_back("... and more devices", nullptr); }
     } catch (...) {
         displayError("BLE scan error");
-        pBLEScan->clearResults();
+        stopBLEStack();
         return;
     }
 
@@ -262,10 +271,7 @@ bool initBLEServer() {
     uint64_t chipid = ESP.getEfuseMac();
     String blename = "Bruce-" + String((uint8_t)(chipid >> 32), HEX);
 
-    if (!is_ble_inited) {
-        BLEDevice::init(blename.c_str());
-        is_ble_inited = true;
-    }
+    if (!bruceBleInit(blename.c_str())) return false;
 
     pServer = BLEDevice::createServer();
     if (!pServer) {

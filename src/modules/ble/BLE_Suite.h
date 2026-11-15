@@ -200,6 +200,7 @@ private:
 public:
     static bool initBLE(const String &name, int powerLevel = ESP_PWR_LVL_P9);
     static void deinitBLE(bool immediate = false);
+    static void resetState();
     static void registerClient(NimBLEClient *client);
     static void unregisterClient(NimBLEClient *client);
     static void cleanupAllClients();
@@ -214,7 +215,7 @@ public:
 
 class BLEAttackManager {
 public:
-    void prepareForConnection();
+    bool prepareForConnection();
     void cleanupAfterAttack();
     bool connectToDevice(NimBLEAddress target, NimBLEClient **outClient, bool useExploitHandshake = false);
     DeviceProfile profileDevice(NimBLEAddress target);

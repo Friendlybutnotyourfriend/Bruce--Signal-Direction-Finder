@@ -35,25 +35,10 @@ static void IRAM_ATTR ca_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
 // Tolerant WiFi bring-up. Unlike the sniffer (ESP_ERROR_CHECK), we never abort:
 // if WiFi is already initialised/started we get ESP_ERR_WIFI_INIT_STATE (or
 // similar) and just carry on — promiscuous mode works regardless.
-static void ca_start_wifi() {
-    ensureWifiPlatform();
-    nvs_flash_init();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_err_t e = esp_wifi_init(&cfg);
-    if (e != ESP_OK && e != ESP_ERR_WIFI_INIT_STATE)
-        Serial.printf("[ChAnalyzer] wifi_init: %s\n", esp_err_to_name(e));
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    e = esp_wifi_start();
-    if (e != ESP_OK && e != ESP_ERR_WIFI_INIT_STATE)
-        Serial.printf("[ChAnalyzer] wifi_start: %s\n", esp_err_to_name(e));
-    esp_wifi_set_promiscuous(true);
-    // Capture every frame type so the airtime estimate reflects real load.
-    wifi_promiscuous_filter_t filt = {};
-    filt.filter_mask = WIFI_PROMIS_FILTER_MASK_ALL;
-    esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous_rx_cb(ca_rx_cb);
+static bool ca_start_wifi() {
+    return startWifiMonitor(ca_rx_cb, WIFI_PROMIS_FILTER_MASK_ALL);
 }
+
 
 static void ca_stop_wifi() {
     esp_wifi_set_promiscuous(false);
@@ -81,7 +66,7 @@ void channel_analyzer_setup() {
         return;
     }
 
-    ca_start_wifi();
+    if (!ca_start_wifi()) return;
     view.commit(load, CA_CHANNELS[0]);
     view.status("CH" + String(CA_CHANNELS[0]) + " scanning...");
 

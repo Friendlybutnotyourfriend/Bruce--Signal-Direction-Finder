@@ -1,10 +1,12 @@
 #if !defined(LITE_VERSION)
 #include "ble_api.hpp"
+#include "core/ble_lifecycle.h"
 #include <NimBLEDevice.h>
 #include "modules/ble/ble_p4_compat.h"
 #include <core/USBSerial/USBSerial.h>
 #include <globals.h>
 
+BLE_API *BLE_API::active = nullptr;
 BLE_API::BLE_API() = default;
 
 class BLEAPICallback : public NimBLEServerCallbacks {
@@ -27,8 +29,9 @@ public:
     explicit BLEAPICallback(BLE_API *api) : api(api) {}
 };
 
-void BLE_API::setup() {
-    NimBLEDevice::init("Bruce");
+bool BLE_API::setup() {
+    if (isActive()) return true;
+    if (!bruceBleInit("Bruce")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9); // 9 dBm, tweak if you want
 
     // Ask for the largest standard ATT MTU. The central still decides the final
@@ -47,6 +50,9 @@ void BLE_API::setup() {
 #endif
 
     pServer = NimBLEDevice::createServer();
+    if (!pServer) { bruceBleDeinit(); return false; }
+    active = this;
+    bruceBleShutdownHook(detachActive);
     pServer->advertiseOnDisconnect(true);
     pServer->setCallbacks(new BLEAPICallback(this));
 
@@ -61,7 +67,8 @@ void BLE_API::setup() {
     // filter on it during scanning.
     pAdvertising->enableScanResponse(true);
     pAdvertising->setName("Bruce");
-    pAdvertising->start();
+    if (!pAdvertising->start()) { end(); return false; }
+    return true;
 }
 
 void BLE_API::update_mtu(uint16_t mtu) {
@@ -71,10 +78,21 @@ void BLE_API::update_mtu(uint16_t mtu) {
 
 void BLE_API::on_disconnect() { serial_service.onDisconnected(); }
 
-void BLE_API::end() {
+void BLE_API::detachActive() {
+    if (active) active->detach();
+}
+
+void BLE_API::detach() {
+    // Stop producers before their characteristics are deleted by the SDK.
+    serialDevice = &USBserial;
     battery_service.end();
     serial_service.end();
-    BLEDevice::deinit();
-    serialDevice = &USBserial;
+    pServer = nullptr;
+    active = nullptr;
+}
+
+void BLE_API::end() {
+    if (!isActive()) return;
+    bruceBleDeinit(true);
 }
 #endif

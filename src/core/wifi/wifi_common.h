@@ -1,6 +1,7 @@
 #include "core/display.h"
 #include <NTPClient.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #ifndef __WIFI_COMMON_H__
 #define __WIFI_COMMON_H__
@@ -11,6 +12,7 @@
  * @brief disconnects and turns off wifi module
  */
 void wifiDisconnect();
+bool startWifiMonitor(wifi_promiscuous_cb_t callback, uint32_t filterMask);
 
 /**
  * @brief Opens a menu to connect to a wifi

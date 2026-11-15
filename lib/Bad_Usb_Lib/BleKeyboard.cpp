@@ -1,3 +1,4 @@
+#include "../../src/core/ble_lifecycle.h"
 #include "BleKeyboard.h"
 #include "KeyboardLayout.h"
 
@@ -159,8 +160,9 @@ BleKeyboard::BleKeyboard(String deviceName, String deviceManufacturer, uint8_t b
 void BleKeyboard::begin(const uint8_t *layout, uint16_t showAs) {
     appearance = showAs;
     _asciimap = layout;
-    BLEDevice::init(deviceName.c_str());
+    if (!bruceBleInit(deviceName.c_str())) return;
     pServer = BLEDevice::createServer();
+    if (!pServer) return;
     pServer->setCallbacks(new ServerCallbacks(this));
     hid = new BLEHIDDevice(pServer);
     inputKeyboard = hid->getInputReport(KEYBOARD_ID); // <-- input REPORTID from report map
@@ -204,17 +206,20 @@ void BleKeyboard::begin(const uint8_t *layout, uint16_t showAs) {
 }
 
 void BleKeyboard::end(void) {
-    int i = 0;
-    i = pServer->getConnectedCount();
-    if (i > 0) {
-        int j;
-        for (j = 0; j < i; j++) pServer->disconnect(pServer->getPeerInfo(i).getConnHandle());
+    if (BLEDevice::isInitialized() && pServer && pServer == BLEDevice::getServer()) {
+        while (pServer->getConnectedCount()) {
+            if (!pServer->disconnect(pServer->getPeerInfo(0).getConnHandle())) break;
+            delay(10);
+            break; // Controller shutdown below disconnects remaining peers.
+        }
     }
     delete hid;
     hid = nullptr;
-
-    BLEDevice::deinit(true);
-    this->connected = false;
+    bruceBleDeinit(true);
+    pServer = nullptr;
+    inputKeyboard = outputKeyboard = inputMediaKeys = nullptr;
+    advertising = nullptr;
+    connected = false;
 }
 
 bool BleKeyboard::isConnected(void) { return this->connected; }

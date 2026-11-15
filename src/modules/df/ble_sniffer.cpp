@@ -983,8 +983,7 @@ SnifferAction chooseSnifferAction(bool frozen, uint8_t view) {
 
 void sniffTarget(const SnifferTarget &target) {
     displayTextLine("Starting BLE sniffer...");
-    ble_scan_setup();
-    if (pBLEScan == nullptr) {
+    if (!ble_scan_setup() || pBLEScan == nullptr) {
         displayError("BLE scanner unavailable", true);
         return;
     }
@@ -1069,8 +1068,7 @@ void sniffTarget(const SnifferTarget &target) {
 std::vector<SnifferTarget> discoverTargets() {
     std::vector<SnifferTarget> targets;
     displayTextLine("Scanning BLE advertisers...");
-    ble_scan_setup();
-    if (pBLEScan == nullptr) return targets;
+    if (!ble_scan_setup() || pBLEScan == nullptr) return targets;
 
     pBLEScan->stop();
     pBLEScan->clearResults();

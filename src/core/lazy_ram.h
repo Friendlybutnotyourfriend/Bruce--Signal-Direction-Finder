@@ -25,7 +25,7 @@ T *lazyRam(T *&slot) {
 template <typename T>
 T *lazyRamArray(T *&slot, size_t count) {
     if (slot) return slot;
-    if (count == 0) return nullptr;
+    if (count == 0 || count > static_cast<size_t>(-1) / sizeof(T)) return nullptr;
     void *mem = heap_caps_malloc(sizeof(T) * count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!mem) mem = heap_caps_malloc(sizeof(T) * count, MALLOC_CAP_8BIT);
     if (!mem) return nullptr;
@@ -33,4 +33,20 @@ T *lazyRamArray(T *&slot, size_t count) {
     for (size_t i = 0; i < count; ++i) new (base + i) T();
     slot = base;
     return slot;
+}
+
+template <typename T>
+void releaseLazyRam(T *&slot) {
+    if (!slot) return;
+    slot->~T();
+    heap_caps_free(slot);
+    slot = nullptr;
+}
+
+template <typename T>
+void releaseLazyRamArray(T *&slot, size_t count) {
+    if (!slot) return;
+    for (size_t i = count; i > 0; --i) slot[i - 1].~T();
+    heap_caps_free(slot);
+    slot = nullptr;
 }

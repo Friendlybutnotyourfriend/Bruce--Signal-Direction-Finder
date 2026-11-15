@@ -151,6 +151,7 @@ void showSummary(const Summary &a, const Summary *b = nullptr) {
 }
 
 void bleSessionReview() {
+    struct ReplaySession { ~ReplaySession() { releaseLazyRam(memReplay); } } session;
     if (!ensureReplayRam()) {
         displayError("Not enough RAM", true);
         return;

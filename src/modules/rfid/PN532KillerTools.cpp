@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 #ifndef LITE_VERSION
 #include "PN532KillerTools.h"
 #include "PN532Killer.h"
@@ -732,7 +733,7 @@ public:
 bool PN532KillerTools::enableBleDataTransfer() {
     if (bleDataTransferEnabled) return true;
 
-    BLEDevice::init("BRUCE-PN532-BLE");
+    if (!bruceBleInit("BRUCE-PN532-BLE")) return false;
     pServer = BLEDevice::createServer();
     if (!pServer) {
         displayError("BLE Server Fail");
@@ -790,7 +791,7 @@ bool PN532KillerTools::disableBleDataTransfer() {
 
     if (pServer) {
         pServer->getAdvertising()->stop();
-        BLEDevice::deinit();
+        bruceBleDeinit();
     }
 
     pServer = nullptr;

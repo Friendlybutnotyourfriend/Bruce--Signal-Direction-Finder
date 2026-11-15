@@ -863,8 +863,7 @@ void drawFingerprintDetails(const TrackerSnapshot &snapshot) {
 void trackBleTarget(const BleDfTarget &target) {
     displayTextLine("Starting BLE Hunter tracker...");
 
-    ble_scan_setup();
-    if (pBLEScan == nullptr) {
+    if (!ble_scan_setup() || pBLEScan == nullptr) {
         displayError("BLE scanner unavailable", true);
         return;
     }
@@ -932,8 +931,7 @@ std::vector<BleDfTarget> discoverBleTargets() {
     std::vector<BleDfTarget> targets;
 
     displayTextLine("Scanning BLE targets...");
-    ble_scan_setup();
-    if (pBLEScan == nullptr) return targets;
+    if (!ble_scan_setup() || pBLEScan == nullptr) return targets;
 
     pBLEScan->stop();
     pBLEScan->clearResults();

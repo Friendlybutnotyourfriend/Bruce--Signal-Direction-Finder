@@ -192,6 +192,17 @@ static bool ensureSentinelRam() {
     return true;
 }
 
+static void releaseSentinelRam(bool keepFindings) {
+    releaseLazyRamArray(mem_bssid, kBssidCap);
+    releaseLazyRamArray(mem_group, kGroupCap);
+    releaseLazyRamArray(mem_beacon, kBeaconCap);
+    releaseLazyRamArray(mem_pending, kPendingCap);
+    releaseLazyRam(mem_live);
+    if (!keepFindings) {
+        releaseLazyRamArray(mem_saved, kSavedCap);
+    }
+}
+
 static BssidSlot (&bssidArr())[kBssidCap] {
     return *reinterpret_cast<BssidSlot (*)[kBssidCap]>(mem_bssid);
 }
@@ -917,6 +928,7 @@ void worker_task(void *arg) {
     (void)arg;
     if (!ensureSentinelRam()) {
         g_worker_run = false;
+        g_worker_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
@@ -1271,9 +1283,9 @@ void stop_wifi() {
 bool start_ble() {
     RAM_LOG("sentinel-ble-pre");
     if (!ble_scan_setup() || pBLEScan == nullptr) {
-        displayError("BLE scan did not start", true);
-        return false;
+        return false; // Preserve the specific startup error.
     }
+    pBLEScan->setMaxResults(0); // Callbacks only: rotating addresses must not grow the SDK result list.
     pBLEScan->setActiveScan(false);
     pBLEScan->setDuplicateFilter(0);
     pBLEScan->setScanCallbacks(&g_ble_cb, true);
@@ -1306,6 +1318,10 @@ void stop_ble() {
 }
 
 bool start_worker() {
+    if (g_worker_handle != nullptr) {
+        displayError("Sentinel worker still stopping", true);
+        return false;
+    }
     if (g_mu == nullptr) g_mu = xSemaphoreCreateMutex();
     g_wifi_q = xQueueCreate(32, sizeof(WifiNote));
     g_ble_q = xQueueCreate(32, sizeof(BleNote));
@@ -1322,11 +1338,15 @@ bool start_worker() {
     return true;
 }
 
-void stop_worker() {
+bool stop_worker() {
     g_wifi_capture = false;
     g_ble_capture = false;
     g_worker_run = false;
-    for (int i = 0; i < 50 && g_worker_handle != nullptr; i++) vTaskDelay(pdMS_TO_TICKS(10));
+    for (int i = 0; i < 100 && g_worker_handle != nullptr; i++) vTaskDelay(pdMS_TO_TICKS(10));
+    if (g_worker_handle != nullptr) {
+        Serial.println("[Sentinel] Worker did not stop; retaining queues and tables");
+        return false;
+    }
     if (g_wifi_q != nullptr) {
         vQueueDelete(g_wifi_q);
         g_wifi_q = nullptr;
@@ -1335,7 +1355,20 @@ void stop_worker() {
         vQueueDelete(g_ble_q);
         g_ble_q = nullptr;
     }
+    return true;
 }
+
+struct WatchResources {
+    ~WatchResources() {
+        stop_wifi();
+        stop_ble();
+        if (stop_worker()) {
+            if (mem_live && mem_pending && mem_saved) drain_logs();
+            close_log();
+            releaseSentinelRam(true);
+        }
+    }
+};
 
 int wrap_text(const char *text, int cpl, char lines[][48], int max_lines) {
     if (cpl > 47) cpl = 47;
@@ -1516,6 +1549,8 @@ void hop_channel(bool wifi_on) {
 }
 
 void sentinel_watch(WatchMode mode) {
+    if (!stop_worker()) { displayError("Worker busy; restart device", true); return; }
+    WatchResources resources;
     RAM_LOG("sentinel-entry");
 #if defined(FENRIR_EBYTE)
     // Reclaim prior radio/WebUI state before allocating the watch tables/worker.
@@ -1567,7 +1602,10 @@ void sentinel_watch(WatchMode mode) {
         handle_buttons(mode, on_wifi && !switching);
         if (!switching) hop_channel(on_wifi);
         if (ble_on && pBLEScan != nullptr && !pBLEScan->isScanning() && !switching) {
-            if (!pBLEScan->start(0, false)) pBLEScan->start(10000, false);
+            if (!pBLEScan->start(0, false) && !pBLEScan->start(10000, false)) {
+                displayError("BLE scan stopped", true);
+                break;
+            }
         }
         if (mode == WatchMode::Both && !switching) {
             bool other_ok = on_wifi ? ble_allowed : wifi_allowed;
@@ -1612,14 +1650,8 @@ void sentinel_watch(WatchMode mode) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    g_wifi_capture = false;
-    g_ble_capture = false;
-    if (wifi_on) stop_wifi();
-    if (ble_on) stop_ble();
-    drain_logs();
-    stop_worker();
-    drain_logs();
-    close_log();
+    // WatchResources quiesces both radios and the worker before freeing tables.
+
 }
 
 const char *kHelp =
@@ -1660,10 +1692,7 @@ void sentinel_help() {
 }
 
 void sentinel_review() {
-    if (!ensureSentinelRam()) {
-        displayError("Not enough RAM", true);
-        return;
-    }
+    if (!mem_saved) { displayInfo("No findings this session", true); return; }
     Saved copy[kSavedCap];
     uint8_t count = 0;
     uint8_t next = 0;
@@ -1700,6 +1729,15 @@ void sentinel_review() {
 } // namespace
 
 void sentinel_menu() {
+    struct MenuResources {
+        ~MenuResources() {
+            if (stop_worker()) {
+                releaseSentinelRam(false);
+                g_saved_count = g_saved_next = 0;
+                if (g_mu) { vSemaphoreDelete(g_mu); g_mu = nullptr; }
+            }
+        }
+    } resources;
     bool leave = false;
     while (!leave && !returnToMenu) {
         options.clear();

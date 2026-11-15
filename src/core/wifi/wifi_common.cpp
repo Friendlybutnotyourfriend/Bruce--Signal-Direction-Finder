@@ -13,6 +13,8 @@
 #include <esp_event.h>
 #include <esp_netif.h>
 #include <globals.h>
+#include <nvs_flash.h>
+#include "core/wifi/webInterface.h"
 
 static TaskHandle_t timezoneTaskHandle = NULL;
 static bool wifiTransitioning = false;
@@ -110,7 +112,10 @@ bool _connectToWifiNetwork(const String &ssid, const String &pwd, int32_t channe
     drawMainBorderWithTitle("WiFi Connect");
     padprintln("");
     padprint("Connecting to: " + ssid + ".");
-    WiFi.mode(WIFI_MODE_STA);
+    if (!radioHasMemForWifi() || !WiFi.mode(WIFI_MODE_STA)) {
+        displayError("Wi-Fi could not start", true);
+        return false;
+    }
     RAM_LOG("wifi post-mode");
     vTaskDelay(10 / portTICK_PERIOD_MS);
     WiFi.begin(ssid.c_str(), pwd.length() > 0 ? pwd.c_str() : NULL, channel, bssid);
@@ -166,8 +171,44 @@ void wifiDisconnect() {
     }
 #endif
 
+#ifndef CONFIG_IDF_TARGET_ESP32P4
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_promiscuous_rx_cb(nullptr);
+    esp_wifi_stop();
+    esp_wifi_deinit();
+#endif
     wifiConnected = false;
     wifiTransitioning = false;
+}
+
+bool startWifiMonitor(wifi_promiscuous_cb_t callback, uint32_t filterMask) {
+    cleanlyStopWebUiForWiFiFeature();
+    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) stopBLEStack();
+    wifiDisconnect();
+    if (!radioHasMemForWifi()) {
+        displayError("Low RAM: Wi-Fi not started", true);
+        return false;
+    }
+    auto checked = [](esp_err_t err) {
+        if (err == ESP_OK) return true;
+        Serial.printf("[WiFi monitor] %s\n", esp_err_to_name(err));
+        wifiDisconnect();
+        displayError("Wi-Fi monitor failed", true);
+        return false;
+    };
+    ensureWifiPlatform();
+    if (!checked(nvs_flash_init())) return false;
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (!checked(esp_wifi_init(&cfg)) ||
+        !checked(esp_wifi_set_storage(WIFI_STORAGE_RAM)) ||
+        !checked(esp_wifi_set_mode(WIFI_MODE_STA)) ||
+        !checked(esp_wifi_start())) return false;
+    esp_wifi_disconnect();
+    wifi_promiscuous_filter_t filter = {};
+    filter.filter_mask = filterMask;
+    return checked(esp_wifi_set_promiscuous_filter(&filter)) &&
+           checked(esp_wifi_set_promiscuous_rx_cb(callback)) &&
+           checked(esp_wifi_set_promiscuous(true));
 }
 
 bool wifiConnectMenu(wifi_mode_t mode) {
@@ -187,7 +228,10 @@ bool wifiConnectMenu(wifi_mode_t mode) {
 
     switch (mode) {
         case WIFI_AP: // access point
-            WiFi.mode(WIFI_AP);
+            if (!radioHasMemForWifi() || !WiFi.mode(WIFI_AP)) {
+                displayError("Wi-Fi AP could not start", true);
+                return false;
+            }
             return _setupAP();
             break;
 

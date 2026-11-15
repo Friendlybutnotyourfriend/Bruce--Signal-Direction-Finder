@@ -1,3 +1,5 @@
+#include "core/radio_mem.h"
+#include "modules/ble/ble_common.h"
 /*
   ===========================================
        Copyright (c) 2017 Stefan Kremser
@@ -1134,6 +1136,41 @@ static void sendDeauthNow() {
 }
 
 //===== SETUP =====//
+static bool startSnifferWifi() {
+    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) stopBLEStack();
+    wifiDisconnect();
+    if (!radioHasMemForWifi()) {
+        displayError("Low RAM: sniffer not started", true);
+        return false;
+    }
+    auto checked = [](esp_err_t err) {
+        if (err == ESP_OK) return true;
+        Serial.printf("[Sniffer] Wi-Fi start failed: %s\n", esp_err_to_name(err));
+        wifiDisconnect();
+        displayError("Sniffer radio failed", true);
+        return false;
+    };
+    ensureWifiPlatform();
+    if (!checked(nvs_flash_init())) return false;
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (!checked(esp_wifi_init(&cfg)) || !checked(esp_wifi_set_storage(WIFI_STORAGE_RAM))) return false;
+    wifi_config_t config = {};
+    strlcpy(reinterpret_cast<char *>(config.ap.ssid), "BruceSniffer", sizeof(config.ap.ssid));
+    strlcpy(reinterpret_cast<char *>(config.ap.password), "brucenet", sizeof(config.ap.password));
+    config.ap.ssid_len = strlen("BruceSniffer");
+    config.ap.channel = 1;
+    config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    config.ap.ssid_hidden = 1;
+    config.ap.max_connection = 2;
+    config.ap.beacon_interval = 100;
+    return checked(esp_wifi_set_mode(WIFI_MODE_AP)) &&
+           checked(esp_wifi_set_config(WIFI_IF_AP, &config)) &&
+           checked(esp_wifi_start()) &&
+           checked(esp_wifi_set_promiscuous_rx_cb(sniffer)) &&
+           checked(esp_wifi_set_promiscuous(true)) &&
+           checked(esp_wifi_set_channel(all_wifi_channels[ch], WIFI_SECOND_CHAN_NONE));
+}
+
 void sniffer_setup() {
     // Stop WebUI before setting WiFi mode for sniffer
     cleanlyStopWebUiForWiFiFeature();
@@ -1179,31 +1216,12 @@ void sniffer_setup() {
     beaconLastSeen.clear(); // ensure starts empty
     beaconRawCache.clear();
 
-    /* setup wifi */
-    ensureWifiPlatform();
-    nvs_flash_init();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-
-    wifi_config_t wifi_config;
-    strlcpy((char *)wifi_config.ap.ssid, "BruceSniffer", sizeof(wifi_config.ap.ssid));
-    strlcpy((char *)wifi_config.ap.password, "brucenet", sizeof(wifi_config.ap.password));
-    wifi_config.ap.ssid_len = strlen("BruceSniffer");
-    wifi_config.ap.channel = 1;                   // Channel
-    wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK; // auth mode
-    wifi_config.ap.ssid_hidden = 1;               // 1 to hidden SSID, 0 to visivle
-    wifi_config.ap.max_connection = 2;            // Max connections
-    wifi_config.ap.beacon_interval = 100;         // beacon interval in ms
-
-    // Configura o modo AP
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_promiscuous_rx_cb(sniffer);
-    wifi_second_chan_t secondCh = (wifi_second_chan_t)NULL;
-    esp_wifi_set_channel(all_wifi_channels[ch], secondCh);
+    if (!startSnifferWifi()) {
+        sniffer_wait_for_flush(1000);
+        closeRawFile();
+        closeDeauthFile();
+        return;
+    }
 
     Serial.println("Sniffer started!");
     vTaskDelay(1000 / portTICK_RATE_MS);

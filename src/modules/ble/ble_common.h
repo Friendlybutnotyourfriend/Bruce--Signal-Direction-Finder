@@ -9,6 +9,7 @@
 #include <NimBLEUtils.h>
 
 #include "core/display.h"
+#include "core/ble_lifecycle.h"
 #include <globals.h>
 
 //=============================================================================
@@ -30,12 +31,8 @@ extern BLEScan *pBLEScan;
 extern int scanTime;
 
 void ble_test();
-#if 0
-#ifdef BOARD_HAS_PSRAM
-constexpr bool FORCE_RADIO_TEARDOWN_ON_SWITCH = false;
-#else
+#if defined(FENRIR_EBYTE)
 constexpr bool FORCE_RADIO_TEARDOWN_ON_SWITCH = true;
-#endif
 #else
 constexpr bool FORCE_RADIO_TEARDOWN_ON_SWITCH = false;
 #endif

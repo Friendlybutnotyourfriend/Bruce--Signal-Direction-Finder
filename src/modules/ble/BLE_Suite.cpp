@@ -289,39 +289,24 @@ const FastPairModelInfo fastpair_models[] = {
 //=============================================================================
 
 bool BLEStateManager::initBLE(const String &name, int powerLevel) {
-    if (FORCE_RADIO_TEARDOWN_ON_SWITCH) {
-        if (WiFi.getMode() != WIFI_MODE_NULL || wifiConnected) {
-            if (wifiConnected) {
-                displayWarning("Board with no PSRAM, closing WiFi Stack");
-                vTaskDelay(700 / portTICK_PERIOD_MS);
-            }
-            wifiDisconnect();
-            vTaskDelay(300 / portTICK_PERIOD_MS);
-        }
-    }
-
-    if (!radioHasMemForBle()) {
-        displayError("Low RAM: free WiFi/SD first", true);
-        return false;
-    }
-
-    std::string nameStr = name.c_str();
-    NimBLEDevice::init(nameStr);
+    if (!bruceBleInit(name.c_str())) return false;
     NimBLEDevice::setPower((esp_power_level_t)powerLevel);
-
     currentDeviceName = name;
     bleInitialized = true;
     return true;
 }
 
-void BLEStateManager::deinitBLE(bool immediate) {
-    if (!bleInitialized) return;
-    if (immediate) cleanupAllClients();
-    NimBLEDevice::deinit(true);
+void BLEStateManager::resetState() {
+    activeClients.clear(); // SDK owns and deletes clients during clearAll shutdown.
     bleInitialized = false;
     currentDeviceName = "";
     g_pBLEScan = nullptr;
     g_bleScanActive = false;
+}
+
+void BLEStateManager::deinitBLE(bool immediate) {
+    (void)immediate;
+    bruceBleDeinit(true);
 }
 
 void BLEStateManager::registerClient(NimBLEClient *client) {
@@ -356,16 +341,17 @@ size_t BLEStateManager::getActiveClientCount() { return activeClients.size(); }
 // BLE Attack Manager
 //=============================================================================
 
-void BLEAttackManager::prepareForConnection() {
+bool BLEAttackManager::prepareForConnection() {
     if (BLEStateManager::isBLEActive()) {
         BLEStateManager::deinitBLE();
         delay(300);
     }
 
-    BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9);
+    if (!BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9)) return false;
     NimBLEDevice::setMTU(250);
     NimBLEDevice::setSecurityAuth(true, true, true);
     delay(300);
+    return true;
 }
 
 void BLEAttackManager::cleanupAfterAttack() {
@@ -411,7 +397,7 @@ DeviceProfile BLEAttackManager::profileDevice(NimBLEAddress target) {
     profile.hasBattery = false;
     profile.hasDeviceInfo = false;
 
-    prepareForConnection();
+    if (!prepareForConnection()) return {};
     NimBLEClient *pClient = nullptr;
     if (!connectToDevice(target, &pClient, false)) {
         cleanupAfterAttack();
@@ -461,7 +447,7 @@ NimBLEClient *attemptConnectionWithStrategies(NimBLEAddress target, String &conn
     showAttackProgress("Trying normal connection...", TFT_WHITE);
 
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return {};
     if (bleManager.connectToDevice(target, &pClient, false)) {
         connectionMethod = "Normal connection";
         return pClient;
@@ -470,7 +456,7 @@ NimBLEClient *attemptConnectionWithStrategies(NimBLEAddress target, String &conn
 
     delay(500);
     showAttackProgress("Trying aggressive connection...", TFT_YELLOW);
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return {};
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     pClient = NimBLEDevice::createClient();
     if (pClient) {
@@ -491,7 +477,7 @@ NimBLEClient *attemptConnectionWithStrategies(NimBLEAddress target, String &conn
     BLEStateManager::deinitBLE(true);
     delay(800);
     std::string exploitName = "Bruce-Exploit";
-    NimBLEDevice::init(exploitName);
+    if (!bruceBleInit(exploitName)) return {};
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setSecurityAuth(false, false, false);
     delay(500);
@@ -628,7 +614,7 @@ bool HIDExploitEngine::tryAppleMagicSpoof(NimBLEAddress target, HIDDeviceProfile
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("Magic Keyboard");
+    if (!BLEStateManager::initBLE("Magic Keyboard")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setSecurityAuth(false, false, false);
 
@@ -673,7 +659,7 @@ bool HIDExploitEngine::tryWindowsHIDBypass(NimBLEAddress target, HIDDeviceProfil
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("HID Keyboard");
+    if (!BLEStateManager::initBLE("HID Keyboard")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setSecurityAuth(true, false, false);
 
@@ -713,7 +699,7 @@ bool HIDExploitEngine::tryAndroidJustWorks(NimBLEAddress target, HIDDeviceProfil
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("Android Keyboard");
+    if (!BLEStateManager::initBLE("Android Keyboard")) return false;
     NimBLEDevice::setSecurityAuth(false, false, false);
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
@@ -747,7 +733,7 @@ bool HIDExploitEngine::tryBootProtocolInjection(NimBLEAddress target, HIDDeviceP
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("Boot Keyboard");
+    if (!BLEStateManager::initBLE("Boot Keyboard")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -794,7 +780,7 @@ bool HIDExploitEngine::tryRapidStateConfusion(NimBLEAddress target, HIDDevicePro
         BLEStateManager::deinitBLE(true);
         delay(50);
         std::string confusionName = "Confusion" + std::to_string(i);
-        NimBLEDevice::init(confusionName);
+        if (!bruceBleInit(confusionName)) return false;
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
         NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -828,7 +814,7 @@ bool HIDExploitEngine::tryHIDReportPreconnection(NimBLEAddress target, HIDDevice
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("Preconnect HID");
+    if (!BLEStateManager::initBLE("Preconnect HID")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
@@ -882,7 +868,7 @@ bool HIDExploitEngine::tryConnectionParameterAttack(NimBLEAddress target, HIDDev
         BLEStateManager::deinitBLE(true);
         delay(100);
         std::string paramName = "ParamAttack" + std::to_string(i);
-        NimBLEDevice::init(paramName);
+        if (!bruceBleInit(paramName)) return false;
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
         NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -926,7 +912,7 @@ bool HIDExploitEngine::trySecurityModeBypass(NimBLEAddress target, HIDDeviceProf
         BLEStateManager::deinitBLE(true);
         delay(100);
         std::string secName = "SecBypass" + std::to_string(i);
-        NimBLEDevice::init(secName);
+        if (!bruceBleInit(secName)) return false;
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
         NimBLEDevice::setSecurityAuth(securityModes[i][0], securityModes[i][1], securityModes[i][2]);
 
@@ -961,7 +947,7 @@ bool HIDExploitEngine::tryAddressSpoofingAttack(NimBLEAddress target, HIDDeviceP
 
         BLEStateManager::deinitBLE(true);
         delay(300);
-        NimBLEDevice::init(spoofedAddr);
+        if (!bruceBleInit(spoofedAddr)) return false;
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
         NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -991,7 +977,7 @@ bool HIDExploitEngine::tryServiceDiscoveryHijack(NimBLEAddress target, HIDDevice
 
     BLEStateManager::deinitBLE();
     delay(300);
-    BLEStateManager::initBLE("ServiceHijack");
+    if (!BLEStateManager::initBLE("ServiceHijack")) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -1367,7 +1353,7 @@ bool WhisperPairExploit::execute(NimBLEAddress target) {
 bool WhisperPairExploit::executeSilent(NimBLEAddress target) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, true)) {
         bleManager.cleanupAfterAttack();
@@ -1414,7 +1400,7 @@ bool WhisperPairExploit::executeSilent(NimBLEAddress target) {
 bool WhisperPairExploit::executeAdvanced(NimBLEAddress target, int attackType) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, true)) {
         bleManager.cleanupAfterAttack();
@@ -2256,7 +2242,7 @@ bool AuthBypassEngine::attemptSpoofConnection(NimBLEAddress target, const String
     BLEStateManager::deinitBLE(true);
     delay(500);
     std::string spoofAddrStr = spoofAddress.c_str();
-    NimBLEDevice::init(spoofAddrStr);
+    if (!bruceBleInit(spoofAddrStr)) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setSecurityAuth(true, true, true);
 
@@ -2289,7 +2275,7 @@ bool AuthBypassEngine::forceRepairing(NimBLEAddress target) {
     BLEStateManager::deinitBLE(true);
     delay(500);
     std::string forceName = "Forced-Pair";
-    NimBLEDevice::init(forceName);
+    if (!bruceBleInit(forceName)) return false;
     NimBLEDevice::setSecurityAuth(false, false, false);
 
     NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -2321,7 +2307,7 @@ bool AuthBypassEngine::exploitAuthBypass(NimBLEAddress target) {
     BLEStateManager::deinitBLE(true);
     delay(500);
     std::string zeroKeyName = "Zero-Key-Auth";
-    NimBLEDevice::init(zeroKeyName);
+    if (!bruceBleInit(zeroKeyName)) return false;
     NimBLEDevice::setSecurityAuth(true, false, false);
 
     NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -2346,7 +2332,7 @@ bool AuthBypassEngine::exploitAuthBypass(NimBLEAddress target) {
     BLEStateManager::deinitBLE(true);
     delay(500);
     std::string legacyName = "Legacy-Pair";
-    NimBLEDevice::init(legacyName);
+    if (!bruceBleInit(legacyName)) return false;
     NimBLEDevice::setSecurityAuth(false, true, false);
 
     pClient = NimBLEDevice::createClient();
@@ -2381,7 +2367,7 @@ bool MultiConnectionAttack::connectionFloodSingle(NimBLEAddress target, int time
     BLEStateManager::deinitBLE(true);
     delay(100);
     std::string floodName = "Bruce-Flooder";
-    NimBLEDevice::init(floodName);
+    if (!bruceBleInit(floodName)) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -2430,7 +2416,7 @@ bool MultiConnectionAttack::advertisingSpamSingle(NimBLEAddress target) {
     BLEStateManager::deinitBLE(true);
     delay(300);
     std::string spamName = "Bruce-Spammer";
-    NimBLEDevice::init(spamName);
+    if (!bruceBleInit(spamName)) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
@@ -2845,7 +2831,7 @@ bool PairingAttackServiceClass::bruteForcePIN(NimBLEAddress target) {
         BLEStateManager::deinitBLE(true);
         delay(300);
         std::string pinName = "Bruce-PINBrute";
-        NimBLEDevice::init(pinName);
+        if (!bruceBleInit(pinName)) return false;
         NimBLEDevice::setSecurityAuth(true, true, true);
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
@@ -2902,7 +2888,7 @@ bool DoSAttackServiceClass::connectionFlood(NimBLEAddress target) {
         BLEStateManager::deinitBLE(true);
         delay(100);
         std::string floodName = "Bruce-Flooder";
-        NimBLEDevice::init(floodName);
+        if (!bruceBleInit(floodName)) return false;
         NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
         NimBLEClient *pClient = NimBLEDevice::createClient();
@@ -2932,7 +2918,7 @@ bool DoSAttackServiceClass::advertisingSpam(NimBLEAddress target) {
     BLEStateManager::deinitBLE(true);
     delay(300);
     std::string spamName = "Bruce-Spammer";
-    NimBLEDevice::init(spamName);
+    if (!bruceBleInit(spamName)) return false;
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
@@ -3302,7 +3288,7 @@ std::vector<FastPairDeviceInfo> FastPairExploitEngine::scanForFastPairDevices(in
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
     showAttackProgress("Scanning for FastPair devices...", TFT_CYAN);
-    BLEStateManager::initBLE("FastPair-Scanner", ESP_PWR_LVL_P9);
+    if (!BLEStateManager::initBLE("FastPair-Scanner", ESP_PWR_LVL_P9)) return {};
 
     NimBLEScan *pScan = NimBLEDevice::getScan();
     if (!pScan) return discoveredDevices;
@@ -3364,7 +3350,7 @@ bool FastPairExploitEngine::exploitFastPairConnection(NimBLEAddress target, Fast
 
     showAttackProgress("Preparing FastPair exploit...", TFT_ORANGE);
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
 
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, true)) {
@@ -3425,7 +3411,7 @@ void FastPairExploitEngine::spamFastPairPopups(FastPairPopupType popupType, int 
         generateRandomMac(mac);
         uint32_t modelId = selectModelForPopup(popupType);
 
-        BLEStateManager::initBLE("", ESP_PWR_LVL_P9);
+        if (!BLEStateManager::initBLE("", ESP_PWR_LVL_P9)) return;
         NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
 
         if (pAdvertising) {
@@ -3572,7 +3558,7 @@ bool FastPairExploitEngine::executeRapidConnection(NimBLEAddress target, NimBLER
         delay(10);
 
         BLEAttackManager bleManager;
-        bleManager.prepareForConnection();
+        if (!bleManager.prepareForConnection()) return false;
 
         NimBLEClient *pClient = nullptr;
         if (bleManager.connectToDevice(target, &pClient, true)) {
@@ -3659,7 +3645,7 @@ bool FastPairExploitEngine::testServiceDiscovery(NimBLEAddress target) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
 
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, false)) return false;
@@ -3678,7 +3664,7 @@ bool FastPairExploitEngine::testCharacteristicAccess(NimBLEAddress target) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
 
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, false)) return false;
@@ -3706,7 +3692,7 @@ bool FastPairExploitEngine::testBufferOverflow(NimBLEAddress target) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
 
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, true)) return false;
@@ -3753,7 +3739,7 @@ bool FastPairExploitEngine::testStateConfusion(NimBLEAddress target) {
     AutoCleanup cleanup([]() { BLEStateManager::deinitBLE(true); });
 
     BLEAttackManager bleManager;
-    bleManager.prepareForConnection();
+    if (!bleManager.prepareForConnection()) return false;
 
     NimBLEClient *pClient = nullptr;
     if (!bleManager.connectToDevice(target, &pClient, true)) return false;
@@ -3901,7 +3887,7 @@ static String parseManufacturerData(const std::vector<uint8_t> &payload) {
 
 void BLE_Sniffer() {
     // FIX: Always init - handles case where stack was deinit'd by another module
-    BLEStateManager::initBLE("BruceSniffer", ESP_PWR_LVL_P9);
+    if (!BLEStateManager::initBLE("BruceSniffer", ESP_PWR_LVL_P9)) return;
     NimBLEScan *pScan = nullptr;
     bool firstRun = true;
     bool redraw = true;
@@ -3928,7 +3914,7 @@ void BLE_Sniffer() {
         bool isSelPressed = check(SelPress);
         if (isSelPressed && snifferPacketCount == 0) {
             if (firstRun) {
-                BLEStateManager::initBLE("BruceSniffer", ESP_PWR_LVL_P9);
+                if (!BLEStateManager::initBLE("BruceSniffer", ESP_PWR_LVL_P9)) return;
                 pScan = NimBLEDevice::getScan();
                 if (!pScan) {
                     displayError("Failed to init scanner");
@@ -4813,7 +4799,7 @@ void showWelcomeScreen() {
 
 void BleSuiteMenu() {
     // FIX: Init BLE stack ONCE when entering the suite
-    BLEStateManager::initBLE("Bruce-BLESuite", ESP_PWR_LVL_P9);
+    if (!BLEStateManager::initBLE("Bruce-BLESuite", ESP_PWR_LVL_P9)) return;
 
     // Clear data when entering the menu
     scannerData.clear();
@@ -4888,7 +4874,7 @@ const char *getScanTitle(int attackIndex) {
 
 void executeAttackWithTargetScan(int attackIndex) {
     // FIX: Ensure BLE is initialized for the attack
-    BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9);
+    if (!BLEStateManager::initBLE("Bruce-Attack", ESP_PWR_LVL_P9)) return false;
 
     String targetInfo = selectTargetFromScan(getScanTitle(attackIndex));
     if (targetInfo.isEmpty()) return;

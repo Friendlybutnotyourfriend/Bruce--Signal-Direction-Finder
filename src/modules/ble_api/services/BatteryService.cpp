@@ -45,5 +45,9 @@ void BatteryService::setup(BLEServer *pServer) {
     );
 }
 
-void BatteryService::end() { vTaskDelete(battery_task_handle); }
+void BatteryService::end() {
+    if (battery_task_handle) vTaskDelete(battery_task_handle);
+    battery_task_handle = nullptr;
+    battery_char = nullptr;
+}
 #endif

@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 /**
  * @file ble_ninebot.cpp
  * @author Sor3nt (https://github.com/Sor3nt)
@@ -85,7 +86,10 @@ buildModelOptions(NimBLERemoteCharacteristic *pTXChar, std::vector<Option> &devi
 BLENinebot::BLENinebot() { setup(); }
 BLENinebot::~BLENinebot() {
     if (!scooterDisconnected) pClient->disconnect();
-    pBLEScan->clearResults();
+    if (pBLEScan) pBLEScan->clearResults();
+    bruceBleDeinit(true);
+    pBLEScan = nullptr;
+    pClient = nullptr;
 }
 
 void BLENinebot::clientDisconnect() {
@@ -99,8 +103,10 @@ void BLENinebot::setup() {
     tft.setTextSize(FP);
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
 
-    NimBLEDevice::init("");
+    if (!bruceBleInit("")) return;
     pBLEScan = NimBLEDevice::getScan();
+    pBLEScan->setMaxResults(60);
+    pBLEScan->setScanCallbacks(nullptr);
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(SCAN_INTERVAL);
     pBLEScan->setWindow(SCAN_WINDOW);

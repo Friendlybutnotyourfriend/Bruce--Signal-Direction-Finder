@@ -1873,17 +1873,18 @@ BLE_API bleApi;
 static bool ble_api_enabled = false;
 
 void enableBLEAPI() {
+    ble_api_enabled = bleApi.isActive();
     if (!ble_api_enabled) {
         // displayWarning("BLE API require huge amount of RAM.");
         // displayWarning("Some features may stop working.");
         Serial.println(ESP.getFreeHeap());
-        bleApi.setup();
+        if (!bleApi.setup()) { displayError("BLE API could not start", true); return; }
         Serial.println(ESP.getFreeHeap());
     } else {
         bleApi.end();
     }
 
-    ble_api_enabled = !ble_api_enabled;
+    ble_api_enabled = bleApi.isActive();
 
     // Give the user visual feedback about the new state, otherwise the toggle
     // looks like it does nothing and gets pressed repeatedly (which cycles the

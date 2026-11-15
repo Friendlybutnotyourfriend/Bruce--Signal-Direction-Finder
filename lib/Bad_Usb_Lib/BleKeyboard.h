@@ -30,12 +30,12 @@
 class BleKeyboard : public BLEServerCallbacks, public BLECharacteristicCallbacks, public HIDInterface {
 private:
     BLEHIDDevice *hid;
-    BLECharacteristic *inputKeyboard;
-    BLECharacteristic *outputKeyboard;
-    BLECharacteristic *inputMediaKeys;
-    BLEAdvertising *advertising;
+    BLECharacteristic *inputKeyboard = nullptr;
+    BLECharacteristic *outputKeyboard = nullptr;
+    BLECharacteristic *inputMediaKeys = nullptr;
+    BLEAdvertising *advertising = nullptr;
     NimBLEConnInfo *activeConnection = nullptr;
-    NimBLEServer *pServer;
+    NimBLEServer *pServer = nullptr;
     KeyReport _keyReport;
     MediaKeyReport _mediaKeyReport;
     String deviceName;

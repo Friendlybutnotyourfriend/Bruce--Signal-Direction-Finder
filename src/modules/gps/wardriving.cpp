@@ -1,3 +1,4 @@
+#include "core/ble_lifecycle.h"
 /**
  * @file wardriving.cpp
  * @author IncursioHack - https://github.com/IncursioHack
@@ -100,7 +101,7 @@ bool Wardriving::begin_gps() {
 void Wardriving::end() {
     if (scanWiFi) wifiDisconnect();
     if (scanBLE) {
-        BLEDevice::deinit(true);
+        bruceBleDeinit(true);
         pBLEScan = nullptr;
         bleInitialized = false;
     }
@@ -315,13 +316,15 @@ void Wardriving::scanWiFiBLE() {
 
     if (scanBLE) {
         if (!bleInitialized || pBLEScan == nullptr) {
-            if (!BLEDevice::init("")) {
+            if (!bruceBleInit("")) {
                 Serial.println(" Failed to init BLE");
                 file.close();
                 vTaskDelay(500 / portTICK_PERIOD_MS);
                 return;
             }
             pBLEScan = BLEDevice::getScan();
+            pBLEScan->setMaxResults(80);
+            pBLEScan->setScanCallbacks(nullptr);
             pBLEScan->setActiveScan(true);
             pBLEScan->setInterval(SCAN_INT);
             pBLEScan->setWindow(SCAN_WINDOW);

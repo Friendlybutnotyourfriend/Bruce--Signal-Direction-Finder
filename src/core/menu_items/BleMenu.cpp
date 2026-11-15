@@ -22,10 +22,7 @@ void BleMenu::optionsMenu() {
 #if !defined(LITE_VERSION)
     if (BLEConnected) {
         options.push_back({"Disconnect", [=]() {
-                               BLEDevice::deinit();
-                               BLEConnected = false;
-                               delete hid_ble;
-                               hid_ble = nullptr;
+                               stopBLEStack();
                            }});
     }
 #endif

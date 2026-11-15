@@ -1,7 +1,7 @@
-name: Fenrir BLE RAM Fix2
+name: Fenrir nRF Black Box Stability1
 on:
   push:
-    branches: [codex/fenrir-ble-ram-fix2]
+    branches: [codex/fenrir-nrf-blackbox-stability]
   workflow_dispatch:
 env:
   PYTHONDONTWRITEBYTECODE: 1
@@ -43,6 +43,13 @@ jobs:
           done
           g++ -std=c++17 -Wall -Wextra -Werror tools/recon_replay.cpp -o /tmp/recon-replay
           RECON_ENGINE=/tmp/recon-replay python -m unittest discover -s tests -p 'test_sessions.py'
+      - name: Lifecycle and Black Box regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_ble_lifecycle.py'
+          g++ -std=c++11 -Wall -Wextra -Werror tests/nrf_blackbox_test.cpp -o /tmp/nrf-blackbox
+          /tmp/nrf-blackbox
+          g++ -std=c++11 -Wall -Wextra -Werror -Itests/stubs/lazy_ram -Isrc tests/lazy_ram_test.cpp -o /tmp/lazy-ram
+          /tmp/lazy-ram
       - name: Build tools
         run: |
           sudo apt-get update -qq
@@ -56,7 +63,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bruce-1.17-Fenrir-Standalone-RAM-Fix2
+          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Stability1
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4
