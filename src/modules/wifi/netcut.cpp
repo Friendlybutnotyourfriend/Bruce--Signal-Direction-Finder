@@ -6,6 +6,7 @@
  */
 
 #include "netcut.h"
+#include "core/lazy_ram.h"
 #include "core/mykeyboard.h"
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
@@ -25,7 +26,9 @@ static void _activeLoop();
 // ============================================
 // FILE-SCOPED STATE (no global collision)
 // ============================================
-static NetCutDevice s_devices[NETCUT_MAX_DEVICES];
+// Preserve the original process-long lifetime once allocated: the network hook
+// can still reference this table after the menu returns.
+static NetCutDevice *s_devices = nullptr;
 static int s_deviceCount = 0;
 static uint8_t s_myMAC[6] = {0};
 static uint8_t s_gatewayMAC[6] = {0};
@@ -242,6 +245,11 @@ int netcutScanDevices() {
     struct netif *iface = _getStaNetif();
     if (!iface) {
         displayError("WiFi netif not found", true);
+        return 0;
+    }
+
+    if (!lazyRamArray(s_devices, NETCUT_MAX_DEVICES)) {
+        displayError("Low RAM for device list", true);
         return 0;
     }
 

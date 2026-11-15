@@ -1,4 +1,4 @@
-name: Fenrir nRF Black Box Lean2
+name: Fenrir nRF Black Box Lean3
 on:
   push:
     branches: [codex/fenrir-nrf-blackbox-stability]
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Lean2
+          name: Bruce-1.17-Fenrir-Standalone-BlackBox-Lean3
           path: .pio/release/*
           if-no-files-found: warn
       - uses: actions/cache/save@v4

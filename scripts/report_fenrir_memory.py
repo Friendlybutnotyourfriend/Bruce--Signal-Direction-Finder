@@ -31,7 +31,7 @@ for line in symbols.splitlines():
             and any(start <= int(fields[0], 16) < end for start, end in ram_ranges)):
         ram.append((int(fields[1], 16), fields[3]))
 ram.sort(reverse=True)
-report = ('Fenrir Lean2: excluded feature symbols and source objects absent.\n'
+report = ('Fenrir Lean3: excluded feature symbols and source objects absent.\n'
           'Static sections; runtime largest DMA block requires hardware measurement.\n\n'
           + sections + '\nLargest RAM symbols (bytes):\n'
           + '\n'.join(f'{count:8d}  {name}' for count, name in ram[:100]) + '\n')
