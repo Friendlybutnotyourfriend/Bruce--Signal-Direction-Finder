@@ -11,6 +11,7 @@ TARGETS = {
     'm5stack-cardputer': ('Cardputer-ADV', 'custom_8Mb.csv', 9),
     'lilygo-t-embed-cc1101': ('T-Embed-CC1101', 'partitions_native_16Mb.csv', 9),
     'nm-cyd-c5': ('NM-CYD-C5', 'custom_8Mb.csv', 23),
+    'smoochiee-board': ('Smoochiee-Flux', 'custom_16Mb.csv', 9),
 }
 
 def main():
@@ -55,7 +56,10 @@ def main():
                     headroom_bytes=size-len(image), hardware_tested=False, image_type='application-only', chip_id=chip_id, dependencies=dependencies)
     (args.output / f'{label}-manifest.json').write_text(json.dumps(identity, indent=2)+'\n')
     (args.output / f'{label}-SHA256.txt').write_text(f'{digest}  {name}\n')
-    readme = 'docs/nm-cyd-c5-1.17.md' if args.env == 'nm-cyd-c5' else 'docs/native-1.17.md'
+    readme = {
+        'nm-cyd-c5': 'docs/nm-cyd-c5-1.17.md',
+        'smoochiee-board': 'docs/smoochiee-1.17.md',
+    }.get(args.env, 'docs/native-1.17.md')
     (args.output / 'READ-ME.md').write_text((root / readme).read_text())
     print(f'{name}: {len(image)} bytes; partition headroom {size-len(image)} bytes')
 

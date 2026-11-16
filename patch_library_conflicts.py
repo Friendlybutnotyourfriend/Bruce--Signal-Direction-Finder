@@ -6,6 +6,23 @@ print("Patching library conflicts with ESP32 core...")
 
 # List of conflicts: (file_pattern, search_pattern, replace_pattern)
 conflicts = [
+    # These two NFC libraries export the same callback type. Keep the Smoochie
+    # link unambiguous and use the callback signature required by NimBLE 2.5.1.
+    (
+        ".pio/libdeps/smoochiee-board/ESP Chameleon Ultra/src/chameleonUltra.cpp",
+        r'\bscanCallbacks\b',
+        'BruceSmoochieChameleonScanCallbacks'
+    ),
+    (
+        ".pio/libdeps/smoochiee-board/ESP Chameleon Ultra/src/chameleonUltra.cpp",
+        r'void onResult\(NimBLEAdvertisedDevice\* advertisedDevice\)',
+        'void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override'
+    ),
+    (
+        ".pio/libdeps/smoochiee-board/ESP PN32BLE/src/pn532_ble.cpp",
+        r'\bscanCallbacks\b',
+        'BruceSmoochiePn532ScanCallbacks'
+    ),
     (
         ".pio/libdeps/*/ESP8266SAM/src/render.c",
         r'static void yield\(\)',
